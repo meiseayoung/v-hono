@@ -1,0 +1,24 @@
+# Features
+- [x] Hono App
+  - [x] `fn get`
+  - [x] `fn post`
+  - [x] `fn put`
+  - [x] `fn delete`
+  - [x] `fn patch`
+  - [x] `fn head`
+  - [x] `fn options`
+  - [x] `fn listen`
+- [x] Request
+  - [x] `property url`
+  - [x] `property header`
+  - [x] `property query`
+  - [ ] `property header`
+  - [ ] `property data`
+  - [ ] `property IP`
+- [x] Response
+  - [x] `fn text`
+  - [x] `fn json`
+  - [x] `fn html`
+- [ ] Router
+- [ ] Middleware
+
