@@ -75,22 +75,24 @@ fn match_path_with_regex(real_path string, reg_path string) (bool, regex.RE) {
 	mut one_more_star_reg := regex.regex_opt(r'\*{2,}') or { panic(err) }
 	repl_on_e_more_star_fn := fn (re regex.RE, in_txt string, start int, end int) string {
 		if in_txt.ends_with('*') {
-			return r'(\w+/){0,}\w+'
+			return r'([^#\?]/){0,}[^#\?]+'
 		}
-		return r'(\w+//){0,}\w+'
+		return r'([^#\?]+//){0,}[^#\?]+'
 	}
-	mut replaced_path := one_more_star_reg.replace_by_fn(reg_path, repl_on_e_more_star_fn)
-	replaced_path = replaced_path.replace('*', r'\w+')
-	mut pamam_reg := regex.regex_opt(r':\w+') or { panic(err) }
+	mut replaced_reg_path := reg_path.replace('?', r'\?')
+	replaced_reg_path = replaced_reg_path.replace('+', r'\+')
+	mut replaced_path := one_more_star_reg.replace_by_fn(replaced_reg_path, repl_on_e_more_star_fn)
+	replaced_path = replaced_path.replace('*', r'[^#\?]+')
+	mut pamam_reg := regex.regex_opt(r':[^/]+') or { panic(err) }
 	repl_fn := fn (re regex.RE, in_txt string, start int, end int) string {
 		match_str := in_txt[start..end]
-		return '(?P<${match_str[1..]}>\\w+)'
+		return '(?P<${match_str[1..]}>[^/]+)'
 	}
 	replaced_path = pamam_reg.replace_by_fn(replaced_path, repl_fn)
 	replaced_path = replaced_path + '$'
 	mut reg := regex.regex_opt(replaced_path) or { panic(err) }
 	end := time.now()
-	println('Regex compile time: ${end - start}')
+	println('Regex time: ${end - start}')
 	return reg.matches_string(real_path), reg
 }
 

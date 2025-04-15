@@ -3,6 +3,12 @@ import hono
 
 fn main() {
 	mut hono_app := hono.Hono{}
+	hono_app.get('/article/:id', fn (req hono.Request) http.Response {
+		println('Request url: ${req.url}')
+		println('Query map: ${req.query}')
+		println('Param map: ${req.param}')
+		return hono.Response.text('Hello, GET request! id = ${req.param['id']}, q = ${req.param['q']}')
+	})
 	hono_app.get('/api/**/:folder/user', fn (req hono.Request) http.Response {
 		println('Request url: ${req.url}')
 		println('Query map: ${req.query}')
