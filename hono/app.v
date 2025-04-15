@@ -74,10 +74,7 @@ fn match_path_with_regex(real_path string, reg_path string) (bool, regex.RE) {
 	start := time.now()
 	mut one_more_star_reg := regex.regex_opt(r'\*{2,}') or { panic(err) }
 	repl_on_e_more_star_fn := fn (re regex.RE, in_txt string, start int, end int) string {
-		if in_txt.ends_with('*') {
-			return r'([^#\?]/){0,}[^#\?]+'
-		}
-		return r'([^#\?]+//){0,}[^#\?]+'
+			return r'[^#\?]+'
 	}
 	mut replaced_reg_path := reg_path.replace('?', r'\?')
 	replaced_reg_path = replaced_reg_path.replace('+', r'\+')
