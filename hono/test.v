@@ -9,7 +9,9 @@ fn init() {
 	is_match3, reg := match_path_with_regex('/users/123/posts/456/comments', '/users/**')
 	println('reg: ${reg.query}')
 	assert is_match3 == true
-	is_match4, _ := match_path_with_regex('/article+&9/杨/why-!important#999', '/article+&*/:杨/why-!important#999')
+	is_match4, _ := match_path_with_regex('/article+&9/article1/why-!important#999', '/article+&*/:article/why-!important#999')
 	assert is_match4 == true
+	is_match5, _ := match_path_with_regex('/api/aaa/bbb/////888', '/api/**/888')
+	assert is_match5 == true
 	println('all tests passed')
 }
