@@ -70,6 +70,12 @@ fn main() {
 			status_code: 200
 		}
 	})
+	mut book_app := &hono.Hono{}
+	book_app.get('/api/book', fn (req hono.Request) http.Response {
+		println('Received get request: ${req}')
+		return hono.Response.text('books')
+	})
+	hono_app.route('/api', mut book_app)
 	port := '0.0.0.0:8585'
 	hono_app.listen(port)
 	println('Listening on ${port}')

@@ -10,6 +10,7 @@ type Handler = fn (req Request) http.Response
 struct RequestHandler {
 	path    string
 	handler Handler = unsafe { nil }
+	mut: app Hono
 }
 
 struct Router {
@@ -30,37 +31,41 @@ pub struct Hono {
 mut:
 	server http.Server = http.Server{}
 	router Router      = Router{}
+	routes map[string] Hono = {}
+	base_path string
 }
 
 pub fn (mut app Hono) get(path string, handler Handler) {
-	app.router.handlers.get << RequestHandler{path, handler}
+	mut handlers := RequestHandler{path,handler,app}
+	app.router.handlers.get << handlers
 }
 
 pub fn (mut app Hono) post(path string, handler Handler) {
-	app.router.handlers.post << RequestHandler{path, handler}
+	app.router.handlers.post << RequestHandler{path,handler,app}
 }
 
 pub fn (mut app Hono) put(path string, handler Handler) {
-	app.router.handlers.put << RequestHandler{path, handler}
+	app.router.handlers.put << RequestHandler{path,handler,app}
 }
 
 pub fn (mut app Hono) delete(path string, handler Handler) {
-	app.router.handlers.delete << RequestHandler{path, handler}
+	app.router.handlers.delete << RequestHandler{path,handler,app}
 }
 
 pub fn (mut app Hono) patch(path string, handler Handler) {
-	app.router.handlers.patch << RequestHandler{path, handler}
+	app.router.handlers.patch << RequestHandler{path,handler,app}
 }
 
 pub fn (mut app Hono) head(path string, handler Handler) {
-	app.router.handlers.head << RequestHandler{path, handler}
+	app.router.handlers.head << RequestHandler{path,handler,app}
 }
 
 pub fn (mut app Hono) options(path string, handler Handler) {
-	app.router.handlers.options << RequestHandler{path, handler}
+	app.router.handlers.options << RequestHandler{path,handler,app}
 }
 
 struct ServerHanler {
+mut:
 	app Hono
 }
 
@@ -93,44 +98,55 @@ fn match_path_with_regex(real_path string, reg_path string) (bool, regex.RE) {
 	return reg.matches_string(real_path), reg
 }
 
-fn (s ServerHanler) handle(req http.Request) http.Response {
-	mut res := http.Response{
-		status_code: 404
-		body:        'Not Found'
-	}
+fn get_all_handlers_from_hono(app Hono,req http.Request) []RequestHandler {
+	mut result := []RequestHandler{}
 	handlers := match req.method {
 		.get {
-			s.app.router.handlers.get
+			app.router.handlers.get
 		}
 		.post {
-			s.app.router.handlers.post
+			app.router.handlers.post
 		}
 		.put {
-			s.app.router.handlers.put
+			app.router.handlers.put
 		}
 		.delete {
-			s.app.router.handlers.delete
+			app.router.handlers.delete
 		}
 		.patch {
-			s.app.router.handlers.patch
+			app.router.handlers.patch
 		}
 		.head {
-			s.app.router.handlers.head
+			app.router.handlers.head
 		}
 		.options {
-			s.app.router.handlers.options
+			app.router.handlers.options
 		}
 		else {
 			[]
 		}
 	}
+	result << handlers
+	for key in app.routes.keys() {
+		subapp_handlers := get_all_handlers_from_hono(app.routes[key],req)
+		result << subapp_handlers
+	}
+	return result
+}
+
+fn (s ServerHanler) handle(req http.Request) http.Response {
+	mut res := http.Response{
+		status_code: 404
+		body:        'Not Found'
+	}
+	handlers := get_all_handlers_from_hono(s.app,req)
 	for handler in handlers {
 		url := urllib.parse(req.url) or {
 			urllib.URL{
 				path: '/'
 			}
 		}
-		match_result, mut replaced_path_reg := match_path_with_regex(url.path, handler.path)
+		match_result, mut replaced_path_reg := match_path_with_regex(url.path, handler.app.base_path + handler.path)
 		if match_result {
 			mut param_map := map[string]string{}
 			mut pamam_reg := regex.regex_opt(r':\w+') or { panic(err) }
@@ -156,4 +172,18 @@ pub fn (mut app Hono) listen(port string) {
 	app.server.addr = port
 	app.server.handler = ServerHanler.new(app)
 	app.server.listen_and_serve()
+}
+
+pub fn (mut app Hono) route(prefix string,mut subapp Hono) {
+	for mut request_handler in subapp.router.handlers.get {
+		request_handler.app.base_path = prefix
+	}
+	for mut request_handler in subapp.router.handlers.post {
+		request_handler.app.base_path = prefix
+	}
+	app.routes[prefix] = subapp
+}
+
+pub fn (mut app Hono) set_base_path(base_path string) {
+	app.base_path = base_path
 }
