@@ -101,6 +101,12 @@ fn main() {
 		}
 	})
 	
+	// 日志打印中间件示例
+	app.use(fn (mut req hono.Request, next fn (mut hono.Request) http.Response) http.Response {
+		println('[LOG] ${req.url}')
+		return next(mut req)
+	})
+	
 	println('Server starting on :8080')
 	println('测试静态路由: http://localhost:8080/')
 	println('测试健康检查: http://localhost:8080/api/health')

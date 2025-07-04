@@ -26,6 +26,7 @@ mut:
 pub mut:
 	hybrid_router HybridRouter
 	trie_router TrieRouter
+	middlewares []Middleware
 }
 
 pub fn (mut app Hono) get(path string, handler fn (Request) http.Response) {
@@ -87,6 +88,12 @@ fn server_hanler_new(app Hono) ServerHanler {
 	}
 }
 
+type Middleware = fn (mut req Request, next fn (mut Request) http.Response) http.Response
+
+pub fn (mut app Hono) use(mw Middleware) {
+	app.middlewares << mw
+}
+
 fn (mut s ServerHanler) handle(req http.Request) http.Response {
 	mut res := http.Response{
 		status_code: 404
@@ -111,15 +118,29 @@ fn (mut s ServerHanler) handle(req http.Request) http.Response {
 		// body
 		body := req.data
 		// 构造 hono.Request
-		hreq := Request{
+		mut hreq := Request{
 			url: url.path
 			param: param_map
 			query: query_map
 			body: body
 		}
-		res = route_match.handler.handle(hreq)
+		// 洋葱模型递归执行中间件
+		return s.exec_middlewares(0, mut hreq, fn [route_match] (req Request) http.Response {
+			return route_match.handler.handle(req)
+		})
 	}
 	return res
+}
+
+fn (mut s ServerHanler) exec_middlewares(idx int, mut req Request, handler fn (Request) http.Response) http.Response {
+	if idx < s.app.middlewares.len {
+		mw := s.app.middlewares[idx]
+		return mw(mut req, fn [mut s, idx, handler] (mut r Request) http.Response {
+			return s.exec_middlewares(idx+1, mut r, handler)
+		})
+	} else {
+		return handler(req)
+	}
 }
 
 pub fn (mut app Hono) listen(port string) {
