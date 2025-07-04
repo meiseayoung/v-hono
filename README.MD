@@ -153,5 +153,5 @@ app.get('/api/users/:id', fn (req hono.Request) http.Response {
   - [x] `fn json`
   - [x] `fn html`
 - [ ] Router
-- [ ] Middleware
+- [x] Middleware
 
