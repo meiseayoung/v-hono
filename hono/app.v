@@ -25,18 +25,25 @@ mut:
 	base_path string
 pub mut:
 	hybrid_router HybridRouter
+	trie_router TrieRouter
 }
 
 pub fn (mut app Hono) get(path string, handler fn (Request) http.Response) {
-	handlers := RequestHandler{path, handler}
-	app.router.handlers.get << handlers
-	app.hybrid_router.add_route('GET', handlers, app.base_path)
+	h := RequestHandler{
+		path: path
+		handler: handler
+	}
+	app.hybrid_router.add_route('GET', h, '')
+	app.trie_router.add_route('GET', path, h)
 }
 
 pub fn (mut app Hono) post(path string, handler fn (Request) http.Response) {
-	handlers := RequestHandler{path, handler}
-	app.router.handlers.post << handlers
-	app.hybrid_router.add_route('POST', handlers, app.base_path)
+	h := RequestHandler{
+		path: path
+		handler: handler
+	}
+	app.hybrid_router.add_route('POST', h, '')
+	app.trie_router.add_route('POST', path, h)
 }
 
 pub fn (mut app Hono) put(path string, handler fn (Request) http.Response) {
@@ -154,10 +161,9 @@ pub fn (mut app Hono) set_base_path(base_path string) {
 }
 
 pub fn (app Hono) get_router_stats() (int, int, int, int) {
-	mut hybrid_router := app.hybrid_router
-	static_routes, dynamic_routes := hybrid_router.get_all_routes()
-	cache_size, cache_capacity := hybrid_router.get_cache_stats()
-	return static_routes.len, dynamic_routes.len, cache_size, cache_capacity
+	static_paths, dynamic_paths := app.hybrid_router.get_all_routes()
+	cache_size, cache_capacity := app.hybrid_router.get_cache_stats()
+	return static_paths.len, dynamic_paths.len, cache_size, cache_capacity
 }
 
 pub fn (mut app Hono) clear_cache() {
@@ -171,5 +177,6 @@ pub fn new_hono() Hono {
 		routes: map[string]Hono{}
 		base_path: ''
 		hybrid_router: new_hybrid_router()
+		trie_router: new_trie_router()
 	}
 }

@@ -95,16 +95,11 @@ fn (mut router HybridRouter) match_path_with_regex(real_path string, reg_path st
 	
 	// 添加结束锚点
 	replaced_path = replaced_path + '$'
-	
-	println('原始路径: ${reg_path}')
-	println('编译后正则: ${replaced_path}')
-	println('参数名: ${param_names}')
-	
+		
 	// 编译正则表达式
 	mut reg := regex.regex_opt(replaced_path) or { return false, regex.RE{}, []string{} }
 	
 	end := time.now()
-	println('Regex time: ${end - start}')
 	
 	return reg.matches_string(real_path), reg, param_names
 }
@@ -112,14 +107,10 @@ fn (mut router HybridRouter) match_path_with_regex(real_path string, reg_path st
 // 添加路由
 pub fn (mut router HybridRouter) add_route(method string, handler IRequestHandler, base_path string) {
 	full_path := handler.path
-	println('添加路由: ${method} ${full_path}')
-	println('是否为静态路径: ${is_static_path(full_path)}')
 	if is_static_path(full_path) {
 		router.static_routes['${method}:${full_path}'] = handler
-		println('添加到静态路由')
 	} else {
 		router.dynamic_routes << handler
-		println('添加到动态路由')
 	}
 }
 
@@ -144,9 +135,6 @@ fn (mut router HybridRouter) match_dynamic_route(method string, path string) ?Ro
 		if match_result {
 			mut param_map := map[string]string{}
 			start, end := replaced_path_reg.match_string(path)
-			println('匹配路径: ${path}')
-			println('匹配结果: start=${start}, end=${end}')
-			println('参数名列表: ${param_names}')
 			if start >= 0 && end > start {
 				// 从原始路由路径中提取参数名
 				mut pamam_reg := regex.regex_opt(r':\w+') or { panic(err) }
@@ -154,11 +142,9 @@ fn (mut router HybridRouter) match_dynamic_route(method string, path string) ?Ro
 				for param in all_params {
 					param_name := param[1..]
 					group := replaced_path_reg.get_group_by_name(path, param_name)
-					println('提取参数 ${param_name} = ${group}')
 					param_map[param_name] = group
 				}
 			}
-			println('最终参数映射: ${param_map}')
 			route_match := RouteMatch{
 				handler: handler
 				params: param_map
