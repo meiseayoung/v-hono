@@ -1,7 +1,7 @@
 Module {
-	name: 'v'
-	description: 'v new v-starting'
-	version: '0.0.0'
+	name: 'v-hono'
+	description: 'A high-performance V language web framework with hybrid routing and LRU cache'
+	version: '0.1.0'
 	license: 'MIT'
-	dependencies: ["ui"]
+	dependencies: []
 }

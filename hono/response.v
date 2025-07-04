@@ -2,38 +2,41 @@ module hono
 
 import net.http
 
+// 响应工具
 pub struct Response {
 }
 
-pub fn Response.json(body string) http.Response {
+// 创建HTML响应
+pub fn Response.html(content string) http.Response {
 	return http.Response{
-		header:      http.new_header(http.HeaderConfig{
-			key:   http.CommonHeader.content_type
-			value: 'application/json'
-		})
 		status_code: 200
-		body:        body
+		header: http.new_header(key: .content_type, value: 'text/html; charset=utf-8')
+		body: content
 	}
 }
 
-pub fn Response.text(body string) http.Response {
+// 创建JSON响应
+pub fn Response.json(content string) http.Response {
 	return http.Response{
-		header:      http.new_header(http.HeaderConfig{
-			key:   http.CommonHeader.content_type
-			value: 'text/plain'
-		})
 		status_code: 200
-		body:        body
+		header: http.new_header(key: .content_type, value: 'application/json; charset=utf-8')
+		body: content
 	}
 }
 
-pub fn Response.html(body string) http.Response {
+// 创建文本响应
+pub fn Response.text(content string) http.Response {
 	return http.Response{
-		header:      http.new_header(http.HeaderConfig{
-			key:   http.CommonHeader.content_type
-			value: 'text/html'
-		})
 		status_code: 200
-		body:        body
+		header: http.new_header(key: .content_type, value: 'text/plain; charset=utf-8')
+		body: content
+	}
+}
+
+// 创建错误响应
+pub fn Response.error(status_code int, message string) http.Response {
+	return http.Response{
+		status_code: status_code
+		body: message
 	}
 }

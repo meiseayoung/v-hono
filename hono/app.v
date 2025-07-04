@@ -2,28 +2,18 @@ module hono
 
 import net.urllib
 import net.http
-import regex
-import time
-
-type Handler = fn (req Request) http.Response
-
-struct RequestHandler {
-	path    string
-	handler Handler = unsafe { nil }
-	mut: app Hono
-}
 
 struct Router {
 mut:
 	handlers struct {
 	mut:
-		get     []RequestHandler
-		post    []RequestHandler
-		put     []RequestHandler
-		delete  []RequestHandler
-		patch   []RequestHandler
-		head    []RequestHandler
-		options []RequestHandler
+		get     []IRequestHandler
+		post    []IRequestHandler
+		put     []IRequestHandler
+		delete  []IRequestHandler
+		patch   []IRequestHandler
+		head    []IRequestHandler
+		options []IRequestHandler
 	}
 }
 
@@ -33,35 +23,50 @@ mut:
 	router Router      = Router{}
 	routes map[string] Hono = {}
 	base_path string
+pub mut:
+	hybrid_router HybridRouter
 }
 
-pub fn (mut app Hono) get(path string, handler Handler) {
-	mut handlers := RequestHandler{path,handler,app}
+pub fn (mut app Hono) get(path string, handler fn (Request) http.Response) {
+	handlers := RequestHandler{path, handler}
 	app.router.handlers.get << handlers
+	app.hybrid_router.add_route('GET', handlers, app.base_path)
 }
 
-pub fn (mut app Hono) post(path string, handler Handler) {
-	app.router.handlers.post << RequestHandler{path,handler,app}
+pub fn (mut app Hono) post(path string, handler fn (Request) http.Response) {
+	handlers := RequestHandler{path, handler}
+	app.router.handlers.post << handlers
+	app.hybrid_router.add_route('POST', handlers, app.base_path)
 }
 
-pub fn (mut app Hono) put(path string, handler Handler) {
-	app.router.handlers.put << RequestHandler{path,handler,app}
+pub fn (mut app Hono) put(path string, handler fn (Request) http.Response) {
+	handlers := RequestHandler{path, handler}
+	app.router.handlers.put << handlers
+	app.hybrid_router.add_route('PUT', handlers, app.base_path)
 }
 
-pub fn (mut app Hono) delete(path string, handler Handler) {
-	app.router.handlers.delete << RequestHandler{path,handler,app}
+pub fn (mut app Hono) delete(path string, handler fn (Request) http.Response) {
+	handlers := RequestHandler{path, handler}
+	app.router.handlers.delete << handlers
+	app.hybrid_router.add_route('DELETE', handlers, app.base_path)
 }
 
-pub fn (mut app Hono) patch(path string, handler Handler) {
-	app.router.handlers.patch << RequestHandler{path,handler,app}
+pub fn (mut app Hono) patch(path string, handler fn (Request) http.Response) {
+	handlers := RequestHandler{path, handler}
+	app.router.handlers.patch << handlers
+	app.hybrid_router.add_route('PATCH', handlers, app.base_path)
 }
 
-pub fn (mut app Hono) head(path string, handler Handler) {
-	app.router.handlers.head << RequestHandler{path,handler,app}
+pub fn (mut app Hono) head(path string, handler fn (Request) http.Response) {
+	handlers := RequestHandler{path, handler}
+	app.router.handlers.head << handlers
+	app.hybrid_router.add_route('HEAD', handlers, app.base_path)
 }
 
-pub fn (mut app Hono) options(path string, handler Handler) {
-	app.router.handlers.options << RequestHandler{path,handler,app}
+pub fn (mut app Hono) options(path string, handler fn (Request) http.Response) {
+	handlers := RequestHandler{path, handler}
+	app.router.handlers.options << handlers
+	app.hybrid_router.add_route('OPTIONS', handlers, app.base_path)
 }
 
 struct ServerHanler {
@@ -69,121 +74,102 @@ mut:
 	app Hono
 }
 
-fn ServerHanler.new(app Hono) ServerHanler {
+fn server_hanler_new(app Hono) ServerHanler {
 	return ServerHanler{
 		app: app
 	}
 }
 
-fn match_path_with_regex(real_path string, reg_path string) (bool, regex.RE) {
-	start := time.now()
-	mut one_more_star_reg := regex.regex_opt(r'\*{2,}') or { panic(err) }
-	repl_on_e_more_star_fn := fn (re regex.RE, in_txt string, start int, end int) string {
-			return r'[^#\?]+'
-	}
-	mut replaced_reg_path := reg_path.replace('?', r'\?')
-	replaced_reg_path = replaced_reg_path.replace('+', r'\+')
-	mut replaced_path := one_more_star_reg.replace_by_fn(replaced_reg_path, repl_on_e_more_star_fn)
-	replaced_path = replaced_path.replace('*', r'[^#\?]+')
-	mut pamam_reg := regex.regex_opt(r':[^/]+') or { panic(err) }
-	repl_fn := fn (re regex.RE, in_txt string, start int, end int) string {
-		match_str := in_txt[start..end]
-		return '(?P<${match_str[1..]}>[^/]+)'
-	}
-	replaced_path = pamam_reg.replace_by_fn(replaced_path, repl_fn)
-	replaced_path = replaced_path + '$'
-	mut reg := regex.regex_opt(replaced_path) or { panic(err) }
-	end := time.now()
-	println('Regex time: ${end - start}')
-	return reg.matches_string(real_path), reg
-}
-
-fn get_all_handlers_from_hono(app Hono,req http.Request) []RequestHandler {
-	mut result := []RequestHandler{}
-	handlers := match req.method {
-		.get {
-			app.router.handlers.get
-		}
-		.post {
-			app.router.handlers.post
-		}
-		.put {
-			app.router.handlers.put
-		}
-		.delete {
-			app.router.handlers.delete
-		}
-		.patch {
-			app.router.handlers.patch
-		}
-		.head {
-			app.router.handlers.head
-		}
-		.options {
-			app.router.handlers.options
-		}
-		else {
-			[]
-		}
-	}
-	result << handlers
-	for key in app.routes.keys() {
-		subapp_handlers := get_all_handlers_from_hono(app.routes[key],req)
-		result << subapp_handlers
-	}
-	return result
-}
-
-fn (s ServerHanler) handle(req http.Request) http.Response {
+fn (mut s ServerHanler) handle(req http.Request) http.Response {
 	mut res := http.Response{
 		status_code: 404
 		body:        'Not Found'
 	}
-	handlers := get_all_handlers_from_hono(s.app,req)
-	for handler in handlers {
-		url := urllib.parse(req.url) or {
-			urllib.URL{
-				path: '/'
+	url := urllib.parse(req.url) or {
+		urllib.URL{
+			path: '/'
+		}
+	}
+	if route_match := s.app.hybrid_router.match_route(req.method.str(), url.path) {
+		// 解析 query
+		raw_query := url.query().to_map()
+		mut query_map := map[string]string{}
+		for key, values in raw_query {
+			if values.len > 0 {
+				query_map[key] = values[0]
 			}
 		}
-		match_result, mut replaced_path_reg := match_path_with_regex(url.path, handler.app.base_path + handler.path)
-		if match_result {
-			mut param_map := map[string]string{}
-			mut pamam_reg := regex.regex_opt(r':\w+') or { panic(err) }
-			all_params := pamam_reg.find_all_str(handler.path)
-			for param in all_params {
-				param_name := param[1..]
-				group := replaced_path_reg.get_group_by_name(url.path, param_name)
-				param_map[param_name] = group
-			}
-			query_map := url.query().to_map()
-			res = handler.handler(Request{
-				url:   url.path
-				param: param_map
-				query: query_map
-			})
-			break
+		// param 由路由匹配结果提供
+		param_map := route_match.params.clone()
+		// body
+		body := req.data
+		// 构造 hono.Request
+		hreq := Request{
+			url: url.path
+			param: param_map
+			query: query_map
+			body: body
 		}
+		res = route_match.handler.handle(hreq)
 	}
 	return res
 }
 
 pub fn (mut app Hono) listen(port string) {
 	app.server.addr = port
-	app.server.handler = ServerHanler.new(app)
+	app.server.handler = server_hanler_new(app)
 	app.server.listen_and_serve()
 }
 
-pub fn (mut app Hono) route(prefix string,mut subapp Hono) {
-	for mut request_handler in subapp.router.handlers.get {
-		request_handler.app.base_path = prefix
-	}
-	for mut request_handler in subapp.router.handlers.post {
-		request_handler.app.base_path = prefix
-	}
+pub fn (mut app Hono) route(prefix string, mut subapp Hono) {
+	// 简化路由合并，直接添加所有处理器
 	app.routes[prefix] = subapp
+	
+	// 将子应用的路由添加到主应用
+	for handler in subapp.router.handlers.get {
+		app.router.handlers.get << handler
+	}
+	for handler in subapp.router.handlers.post {
+		app.router.handlers.post << handler
+	}
+	for handler in subapp.router.handlers.put {
+		app.router.handlers.put << handler
+	}
+	for handler in subapp.router.handlers.delete {
+		app.router.handlers.delete << handler
+	}
+	for handler in subapp.router.handlers.patch {
+		app.router.handlers.patch << handler
+	}
+	for handler in subapp.router.handlers.head {
+		app.router.handlers.head << handler
+	}
+	for handler in subapp.router.handlers.options {
+		app.router.handlers.options << handler
+	}
 }
 
 pub fn (mut app Hono) set_base_path(base_path string) {
 	app.base_path = base_path
+}
+
+pub fn (app Hono) get_router_stats() (int, int, int, int) {
+	mut hybrid_router := app.hybrid_router
+	static_routes, dynamic_routes := hybrid_router.get_all_routes()
+	cache_size, cache_capacity := hybrid_router.get_cache_stats()
+	return static_routes.len, dynamic_routes.len, cache_size, cache_capacity
+}
+
+pub fn (mut app Hono) clear_cache() {
+	app.hybrid_router.clear_cache()
+}
+
+pub fn new_hono() Hono {
+	return Hono{
+		server: http.Server{}
+		router: Router{}
+		routes: map[string]Hono{}
+		base_path: ''
+		hybrid_router: new_hybrid_router()
+	}
 }
