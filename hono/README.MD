@@ -167,7 +167,7 @@ fn get_content_type(file_path string) string {
 ```v
 import hono
 
-mut app := hono.new_hono()
+mut app := hono.Hono.new()
 
 // 使用默认配置
 app.use(hono.serve_static_default())

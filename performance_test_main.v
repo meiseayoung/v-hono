@@ -8,7 +8,7 @@ fn main() {
 	println('=== 混合路由性能测试 ===')
 	
 	// 创建应用实例
-	mut app := hono.new_hono()
+	mut app := hono.Hono.new()
 	
 	// 添加静态路由
 	app.get('/api/users', fn (mut c hono.Context) http.Response {

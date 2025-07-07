@@ -210,13 +210,13 @@ pub fn (mut app Hono) clear_cache() {
 	app.context_hybrid_router.clear_cache()
 }
 
-pub fn new_hono() Hono {
+pub fn Hono.new() Hono {
 	return Hono{
 		server: http.Server{}
 		routes: map[string]Hono{}
 		base_path: ''
 		context_router: ContextRouter{}
-			context_hybrid_router: ContextHybridRouter.new()
-	context_trie_router: ContextTrieRouter.new()
+		context_hybrid_router: ContextHybridRouter.new()
+		context_trie_router: ContextTrieRouter.new()
 	}
 }

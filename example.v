@@ -4,7 +4,7 @@ import net.http
 import hono
 
 fn main() {
-	mut app := hono.new_hono()
+	mut app := hono.Hono.new()
 	
 	// 日志中间件
 	app.use(fn (mut c hono.Context, next fn (mut hono.Context) http.Response) http.Response {

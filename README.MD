@@ -37,7 +37,7 @@ import hono
 import net.http
 
 fn main() {
-    mut app := hono.new_hono()
+    mut app := hono.Hono.new()
     
     // 基本路由
     app.get('/', fn (mut c hono.Context) http.Response {
