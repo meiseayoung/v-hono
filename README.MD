@@ -12,6 +12,10 @@
 - ⚡ 支持通配符路由（`*` 和 `**`）
 - 🔄 支持所有 HTTP 方法（GET、POST、PUT、DELETE、PATCH、HEAD、OPTIONS）
 - 🏗️ 构造函数风格的 API 设计
+- 📁 静态文件服务中间件（类似 Hono.js 的 serveStatic）
+- 🛡️ 内置安全防护（路径遍历攻击防护、点文件访问控制）
+- 💾 智能缓存支持（ETag、Last-Modified、Cache-Control）
+- 🎯 自动 Content-Type 检测
 
 ## 安装
 
@@ -225,6 +229,45 @@ app.use(fn (mut c hono.Context, next fn (mut hono.Context) http.Response) http.R
 })
 ```
 
+### 静态文件服务
+
+提供类似 Hono.js 的 `serveStatic` 中间件：
+
+```v
+// 使用默认配置（./public 目录）
+app.use(hono.serve_static_default())
+
+// 指定根目录
+app.use(hono.serve_static_root('./static'))
+
+// 指定路径前缀和根目录
+app.use(hono.serve_static_path('/assets', './static'))
+
+// 使用自定义配置
+options := hono.StaticOptions{
+    root: './public'
+    path: '/static'
+    index: 'index.html'
+    dotfiles: false
+    etag: true
+    last_modified: true
+    max_age: 3600  // 1小时缓存
+    headers: {
+        'X-Custom-Header': 'value'
+    }
+}
+app.use(hono.serve_static(options))
+```
+
+**特性：**
+- 🛡️ 路径遍历攻击防护
+- 📁 自动索引文件支持（index.html）
+- 🔒 点文件访问控制
+- 🏷️ ETag 和 Last-Modified 支持
+- 💾 可配置缓存策略
+- 📋 自定义响应头
+- 🎯 智能 Content-Type 检测
+
 ### 查询参数和请求体
 
 ```v
@@ -256,6 +299,8 @@ app.clear_cache()
 
 ## 示例
 
+### 基础示例
+
 运行完整示例：
 
 ```bash
@@ -268,6 +313,51 @@ v run example.v
 - 所有 HTTP 方法
 - 中间件功能
 - 参数提取和查询参数处理
+
+### 静态文件服务示例
+
+运行静态文件服务示例：
+
+```bash
+v run static_example.v
+```
+
+这个示例演示了：
+- 多个静态文件目录配置
+- 自定义缓存策略
+- 安全特性演示
+- 完整的HTML界面
+
+**重要提示**: 静态文件路径映射
+- `./public` 目录 → 访问路径 `/`
+- `./static` 目录 → 访问路径 `/assets`
+- `./uploads` 目录 → 访问路径 `/files`
+
+例如：
+- `./public/test.txt` → `http://localhost:8080/test.txt`
+- `./static/style.css` → `http://localhost:8080/assets/style.css`
+- `./uploads/sample.json` → `http://localhost:8080/files/sample.json`
+
+### 快速测试
+
+运行简单的静态文件测试：
+
+```bash
+v run test_static.v
+```
+
+测试文件结构：
+```
+v-hono/
+├── public/
+│   ├── index.html      # 默认索引文件
+│   └── test.txt        # 测试文本文件
+├── static/
+│   ├── style.css       # 样式文件
+│   └── app.js          # JavaScript文件
+└── uploads/
+    └── sample.json     # JSON文件
+```
 
 ## 性能特性
 

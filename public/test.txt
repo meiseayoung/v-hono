@@ -1,0 +1,9 @@
+Hello from V-Hono static file server!
+
+This is a test file from the ./public directory.
+You can access this file directly via the root path (/).
+
+Features demonstrated:
+- Text file serving
+- Content-Type detection
+- Path mapping from URL to file system 

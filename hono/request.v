@@ -1,6 +1,7 @@
 module hono
 
 import net.http
+import net.urllib
 
 // Context 结构体，类似 Hono.js 的实现
 pub struct Context {
@@ -17,12 +18,18 @@ pub mut:
 
 // Context 构造函数
 pub fn Context.new(req http.Request, params map[string]string, query map[string]string, body string) Context {
+	// 解析URL获取路径
+	url := urllib.parse(req.url) or {
+		urllib.URL{
+			path: '/'
+		}
+	}
 	return Context{
 		req: req
 		params: params
 		query: query
 		body: body
-		url: req.url
+		url: url.path
 		headers: map[string]string{}
 	}
 }

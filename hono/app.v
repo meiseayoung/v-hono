@@ -116,16 +116,17 @@ fn (mut s ServerHanler) handle(req http.Request) http.Response {
 		}
 	}
 	
+	// 解析 query
+	raw_query := url.query().to_map()
+	mut query_map := map[string]string{}
+	for key, values in raw_query {
+		if values.len > 0 {
+			query_map[key] = values[0]
+		}
+	}
+	
 	// 尝试 Context 路由
 	if route_match := s.app.context_hybrid_router.match_route(req.method.str(), url.path) {
-		// 解析 query
-		raw_query := url.query().to_map()
-		mut query_map := map[string]string{}
-		for key, values in raw_query {
-			if values.len > 0 {
-				query_map[key] = values[0]
-			}
-		}
 		// param 由路由匹配结果提供
 		param_map := route_match.params.clone()
 		// body
@@ -136,8 +137,15 @@ fn (mut s ServerHanler) handle(req http.Request) http.Response {
 		return s.exec_context_middlewares(0, mut ctx, fn [route_match] (mut c Context) http.Response {
 			return route_match.handler.handle(mut c)
 		})
+	} else {
+		// 如果没有匹配的路由，也要执行中间件
+		param_map := map[string]string{}
+		body := req.data
+		mut ctx := Context.new(req, param_map, query_map, body)
+		return s.exec_context_middlewares(0, mut ctx, fn [res] (mut c Context) http.Response {
+			return res
+		})
 	}
-	return res
 }
 
 // Context 版本的中间件执行函数
