@@ -10,39 +10,40 @@ enum RouteType {
 	wildcard
 }
 
-// 路由节点
-struct RouteNode {
+// Context 路由节点
+struct ContextRouteNode {
 mut:
 	path      string
-	handler   IRequestHandler
+	handler   IHandler
 	route_type RouteType
-	children  map[string]&RouteNode
+	children  map[string]&ContextRouteNode
 	param_name string
 	base_path string
 }
 
-// 路由匹配结果
-pub struct RouteMatch {
+// Context 路由匹配结果
+pub struct ContextRouteMatch {
 pub:
-	handler IRequestHandler
+	handler IHandler
 	params  map[string]string
 	path    string
 	base_path string
 }
 
-// 混合路由器
-pub struct HybridRouter {
+// Context 混合路由器
+pub struct ContextHybridRouter {
 mut:
-	static_routes  map[string]IRequestHandler
-	dynamic_routes []IRequestHandler
-	cache          LRUCache
+	static_routes  map[string]IHandler
+	dynamic_routes []IHandler
+	cache          ContextLRUCache
 }
 
-pub fn new_hybrid_router() HybridRouter {
-	return HybridRouter{
-		static_routes: map[string]IRequestHandler{}
-		dynamic_routes: []IRequestHandler{}
-		cache: new_lru_cache(1000) // 缓存1000个路由匹配结果
+// ContextHybridRouter 构造函数
+pub fn ContextHybridRouter.new() ContextHybridRouter {
+	return ContextHybridRouter{
+		static_routes: map[string]IHandler{}
+		dynamic_routes: []IHandler{}
+		cache: ContextLRUCache.new(1000)
 	}
 }
 
@@ -56,56 +57,65 @@ fn is_dynamic_path(path string) bool {
 	return path.contains(':') || path.contains('*') || path.contains('?') || path.contains('+')
 }
 
-// 优化的正则匹配函数
-fn (mut router HybridRouter) match_path_with_regex(real_path string, reg_path string) (bool, regex.RE, []string) {
-	start := time.now()
-	
+// Context 版本的正则匹配函数
+fn (mut router ContextHybridRouter) match_path_with_regex(real_path string, reg_path string) (bool, regex.RE, []string) {
 	// 处理多个星号 **
-	mut one_more_star_reg := regex.regex_opt(r'\*{2,}') or { return false, regex.RE{}, []string{} }
-	repl_on_e_more_star_fn := fn (re regex.RE, in_txt string, start int, end int) string {
-		return r'[^#\?]*' // 匹配任意字符（包括斜杠）
+	if reg_path.contains('**') {
+		// 将 ** 替换为 .*
+		replaced_path := reg_path.replace('**', '.*')
+		mut reg := regex.regex_opt(replaced_path) or { return false, regex.RE{}, []string{} }
+		return reg.matches_string(real_path), reg, []string{}
 	}
 	
-	// 转义特殊字符
-	mut replaced_reg_path := reg_path.replace('?', r'\?')
-	replaced_reg_path = replaced_reg_path.replace('+', r'\+')
-	replaced_reg_path = replaced_reg_path.replace('.', r'\.')
-	replaced_reg_path = replaced_reg_path.replace('(', r'\(')
-	replaced_reg_path = replaced_reg_path.replace(')', r'\)')
-	replaced_reg_path = replaced_reg_path.replace('[', r'\[')
-	replaced_reg_path = replaced_reg_path.replace(']', r'\]')
-	replaced_reg_path = replaced_reg_path.replace('{', r'\{')
-	replaced_reg_path = replaced_reg_path.replace('}', r'\}')
-	replaced_reg_path = replaced_reg_path.replace('^', r'\^')
-	replaced_reg_path = replaced_reg_path.replace('$', r'\$')
-	replaced_reg_path = replaced_reg_path.replace('|', r'\|')
+	// 处理单个星号 *
+	if reg_path.contains('*') {
+		// 将 * 替换为 [^/]*
+		replaced_path := reg_path.replace('*', '[^/]*')
+		mut reg := regex.regex_opt(replaced_path) or { return false, regex.RE{}, []string{} }
+		return reg.matches_string(real_path), reg, []string{}
+	}
 	
-	// 处理多个星号
-	mut replaced_path := one_more_star_reg.replace_by_fn(replaced_reg_path, repl_on_e_more_star_fn)
-	replaced_path = replaced_path.replace('*', r'[^/#\?]+') // 单个星号匹配单个路径段
-	
-	// 提取参数名并替换为命名捕获组
-	mut param_names := []string{}
-	mut pamam_reg := regex.regex_opt(r':[a-zA-Z_][a-zA-Z0-9_]*') or { return false, regex.RE{}, []string{} }
-	replaced_path = pamam_reg.replace_by_fn(replaced_path, fn [mut param_names] (re regex.RE, in_txt string, start int, end int) string {
-		param_name := in_txt[start+1..end]
-		param_names << param_name
-		return '(?P<' + param_name + '>[^/]+)'
-	})
-	
-	// 添加结束锚点
-	replaced_path = replaced_path + '$'
+	// 处理参数 :param
+	if reg_path.contains(':') {
+		mut replaced_path := reg_path
+		mut param_names := []string{}
 		
-	// 编译正则表达式
-	mut reg := regex.regex_opt(replaced_path) or { return false, regex.RE{}, []string{} }
+		// 转义特殊字符
+		replaced_path = replaced_path.replace('?', r'\?')
+		replaced_path = replaced_path.replace('+', r'\+')
+		replaced_path = replaced_path.replace('.', r'\.')
+		replaced_path = replaced_path.replace('(', r'\(')
+		replaced_path = replaced_path.replace(')', r'\)')
+		replaced_path = replaced_path.replace('[', r'\[')
+		replaced_path = replaced_path.replace(']', r'\]')
+		replaced_path = replaced_path.replace('{', r'\{')
+		replaced_path = replaced_path.replace('}', r'\}')
+		replaced_path = replaced_path.replace('^', r'\^')
+		replaced_path = replaced_path.replace('$', r'\$')
+		replaced_path = replaced_path.replace('|', r'\|')
+		
+		// 提取参数名并替换为命名捕获组
+		mut pamam_reg := regex.regex_opt(r':[a-zA-Z_][a-zA-Z0-9_]*') or { return false, regex.RE{}, []string{} }
+		replaced_path = pamam_reg.replace_by_fn(replaced_path, fn [mut param_names] (re regex.RE, in_txt string, start int, end int) string {
+			param_name := in_txt[start+1..end]
+			param_names << param_name
+			return '(?P<' + param_name + '>[^/]+)'
+		})
+		
+		// 添加结束锚点
+		replaced_path = '^' + replaced_path + '$'
+		
+		// 编译正则表达式
+		mut reg := regex.regex_opt(replaced_path) or { return false, regex.RE{}, []string{} }
+		
+		return reg.matches_string(real_path), reg, param_names
+	}
 	
-	end := time.now()
-	
-	return reg.matches_string(real_path), reg, param_names
+	return false, regex.RE{}, []string{}
 }
 
-// 添加路由
-pub fn (mut router HybridRouter) add_route(method string, handler IRequestHandler, base_path string) {
+// 添加 Context 路由
+pub fn (mut router ContextHybridRouter) add_route(method string, handler IHandler, base_path string) {
 	full_path := handler.path
 	if is_static_path(full_path) {
 		router.static_routes['${method}:${full_path}'] = handler
@@ -114,8 +124,8 @@ pub fn (mut router HybridRouter) add_route(method string, handler IRequestHandle
 	}
 }
 
-// 快速静态路径匹配
-fn (router HybridRouter) match_static_route(method string, path string) ?IRequestHandler {
+// Context 版本的静态路径匹配
+fn (router ContextHybridRouter) match_static_route(method string, path string) ?IHandler {
 	key := '${method}:${path}'
 	if key in router.static_routes {
 		return router.static_routes[key]
@@ -123,29 +133,29 @@ fn (router HybridRouter) match_static_route(method string, path string) ?IReques
 	return none
 }
 
-// 优化的动态路径匹配
-fn (mut router HybridRouter) match_dynamic_route(method string, path string) ?RouteMatch {
+// Context 版本的动态路径匹配
+fn (mut router ContextHybridRouter) match_dynamic_route(method string, path string) ?ContextRouteMatch {
 	// 先检查缓存
 	cache_key := '${method}:${path}'
 	if cached := router.cache.get(cache_key) {
 		return cached
 	}
+	
 	for handler in router.dynamic_routes {
 		match_result, replaced_path_reg, param_names := router.match_path_with_regex(path, handler.path)
 		if match_result {
 			mut param_map := map[string]string{}
-			start, end := replaced_path_reg.match_string(path)
-			if start >= 0 && end > start {
-				// 从原始路由路径中提取参数名
-				mut pamam_reg := regex.regex_opt(r':\w+') or { panic(err) }
-				all_params := pamam_reg.find_all_str(handler.path)
-				for param in all_params {
-					param_name := param[1..]
-					group := replaced_path_reg.get_group_by_name(path, param_name)
-					param_map[param_name] = group
-				}
+			
+			// 从原始路由路径中提取参数名
+			mut pamam_reg := regex.regex_opt(r':\w+') or { panic(err) }
+			all_params := pamam_reg.find_all_str(handler.path)
+			for param in all_params {
+				param_name := param[1..]
+				group := replaced_path_reg.get_group_by_name(path, param_name)
+				param_map[param_name] = group
 			}
-			route_match := RouteMatch{
+			
+			route_match := ContextRouteMatch{
 				handler: handler
 				params: param_map
 				path: handler.path
@@ -158,11 +168,11 @@ fn (mut router HybridRouter) match_dynamic_route(method string, path string) ?Ro
 	return none
 }
 
-// 主匹配函数
-pub fn (mut router HybridRouter) match_route(method string, path string) ?RouteMatch {
+// Context 版本的主匹配函数
+pub fn (mut router ContextHybridRouter) match_route(method string, path string) ?ContextRouteMatch {
 	// 1. 先尝试静态路径匹配（最快）
 	if static_handler := router.match_static_route(method, path) {
-		return RouteMatch{
+		return ContextRouteMatch{
 			handler: static_handler
 			params: map[string]string{}
 			path: path
@@ -174,8 +184,8 @@ pub fn (mut router HybridRouter) match_route(method string, path string) ?RouteM
 	return router.match_dynamic_route(method, path)
 }
 
-// 获取所有路由（用于调试）
-pub fn (router HybridRouter) get_all_routes() ([]string, []string) {
+// Context 版本的获取所有路由
+pub fn (router ContextHybridRouter) get_all_routes() ([]string, []string) {
 	mut static_paths := []string{}
 	mut dynamic_paths := []string{}
 	
@@ -190,14 +200,14 @@ pub fn (router HybridRouter) get_all_routes() ([]string, []string) {
 	return static_paths, dynamic_paths
 }
 
-// 清理缓存
-pub fn (mut router HybridRouter) clear_cache() {
-	router.cache.clear()
+// 获取缓存统计信息
+pub fn (router ContextHybridRouter) get_cache_stats() (int, int) {
+	return router.cache.get_stats()
 }
 
-// 获取缓存统计信息
-pub fn (router HybridRouter) get_cache_stats() (int, int) {
-	return router.cache.size(), router.cache.capacity
+// 清理缓存
+pub fn (mut router ContextHybridRouter) clear_cache() {
+	router.cache.clear()
 }
 
  
