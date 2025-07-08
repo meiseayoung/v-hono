@@ -11,15 +11,15 @@ fn main() {
 	
 	// 日志中间件
 	app.use(fn (mut c hono.Context, next fn (mut hono.Context) http.Response) http.Response {
-		println('[LOG] ${c.req.method} ${c.url}')
+		println('[LOG] ${c.req.method} ${c.path}')
 		return next(mut c)
 	})
 	
 	// 认证中间件
 	app.use(fn (mut c hono.Context, next fn (mut hono.Context) http.Response) http.Response {
-		println("url path: ${c.url}")
+		println("url path: ${c.path}")
 		token := c.query['token']
-		if c.url != "/" &&  token == '' {
+		if c.path != "/" &&  token == '' {
 			c.status(401)
 			return c.json('{"error": "Unauthorized", "message": "Token required"}')
 		}
@@ -197,6 +197,19 @@ curl -X POST "http://localhost:8080/api/test/create/456?token=abc123" -d "{\\"na
 		return c.text('Hello, World!')
 	})
 	
+	// Path 信息展示路由
+	app.get('/path-info', fn (mut c hono.Context) http.Response {
+		// 构建JSON响应
+		mut response := '{'
+		response += '"path_info": {'
+		response += '"path": "${c.path}",'
+		response += '"url": "${c.url}"'
+		response += '}'
+		response += '}'
+		
+		return c.json(response)
+	})
+	
 	// ===== 5. API 路由 =====
 	
 	// 健康检查
@@ -249,6 +262,21 @@ curl -X POST "http://localhost:8080/api/test/create/456?token=abc123" -d "{\\"na
 		user_id := c.params['user_id']
 		post_id := c.params['post_id']
 		return c.json('{"user_id": "${user_id}", "post_id": "${post_id}", "title": "Sample Post"}')
+	})
+	
+	// 路径分析路由
+	app.get('/analyze/*path', fn (mut c hono.Context) http.Response {
+		requested_path := c.params['path']
+		
+		// 构建JSON响应
+		mut response := '{'
+		response += '"path_analysis": {'
+		response += '"original_path": "${c.path}",'
+		response += '"requested_path": "${requested_path}"'
+		response += '}'
+		response += '}'
+		
+		return c.json(response)
 	})
 	
 	// ===== 7. HTTP 方法示例 =====
@@ -323,7 +351,7 @@ curl -X POST "http://localhost:8080/api/test/create/456?token=abc123" -d "{\\"na
 	
 	// DELETE 请求示例
 	app.delete('/api/users/:id', fn (mut c hono.Context) http.Response {
-		user_id := c.params['id']
+		_ := c.params['id'] // 忽略用户ID
 		c.status(204)
 		return c.text('')
 	})
@@ -458,6 +486,8 @@ curl -X POST "http://localhost:8080/api/test/create/456?token=abc123" -d "{\\"na
 	println('  - GET /api/status')
 	println('  - GET /api/static-info')
 	println('  - GET /hello')
+	println('  - GET /path-info')
+	println('  - GET /analyze/*path')
 	println('')
 	println('📄 文件服务端点:')
 	println('  - GET /file/:filename - 基本文件服务')

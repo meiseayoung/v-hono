@@ -327,7 +327,7 @@
                         <button class="test-button" onclick="testFile('/file/test.txt')">基本文件服务</button>
                         <button class="test-button" onclick="testFile('/file-cached/test.txt')">缓存文件服务</button>
                         <button class="test-button" onclick="testFile('/download/downloadable.txt')">文件下载</button>
-                        <button class="test-button" onclick="testFile('/image/style.css')">图片文件服务</button>
+                        <button class="test-button" onclick="testFile('/image/img1.jpg')">图片文件服务</button>
                         <button class="test-button" onclick="testFile('/safe-file/test.txt')">安全文件服务</button>
                         <div id="file-result" class="result" style="display: none;"></div>
                     </div>
@@ -612,11 +612,64 @@ app.listen(':8080')
                 }
                 
                 const response = await fetch(url.toString());
-                const data = await response.text();
                 const responseTime = Date.now() - startTime;
                 
-                resultDiv.className = 'result';
-                resultDiv.textContent = `✅ 成功 (${responseTime}ms)\n状态码: ${response.status}\n请求URL: ${url.toString()}\n文件大小: ${data.length} 字符\n内容预览:\n${data.substring(0, 200)}${data.length > 200 ? '...' : ''}`;
+                // 获取所有响应头信息用于调试
+                const headers = {};
+                response.headers.forEach((value, key) => {
+                    headers[key] = value;
+                });
+                
+                // 检查是否是图片文件 - 优先检查文件扩展名
+                const urlPath = url.pathname.toLowerCase();
+                const isImageByExtension = urlPath.endsWith('.jpg') || urlPath.endsWith('.jpeg') || 
+                                         urlPath.endsWith('.png') || urlPath.endsWith('.gif') || 
+                                         urlPath.endsWith('.webp') || urlPath.endsWith('.svg');
+                
+                // 也检查 content-type
+                const contentType = response.headers.get('content-type') || '';
+                const isImageByType = contentType.startsWith('image/');
+                
+                const isImage = isImageByExtension || isImageByType;
+                
+                if (isImage) {
+                    // 对于图片文件，显示图片预览
+                    const blob = await response.blob();
+                    const imageUrl = URL.createObjectURL(blob);
+                    
+                    resultDiv.className = 'result';
+                    resultDiv.innerHTML = `
+                        ✅ 成功 (${responseTime}ms)<br>
+                        状态码: ${response.status}<br>
+                        请求URL: ${url.toString()}<br>
+                        文件类型: ${contentType}<br>
+                        文件大小: ${(blob.size / 1024).toFixed(2)} KB<br>
+                        检测方式: ${isImageByExtension ? '文件扩展名' : 'Content-Type'}<br>
+                        <br>
+                        <strong>响应头信息:</strong><br>
+                        <pre style="font-size: 0.8em; background: #f5f5f5; padding: 10px; border-radius: 4px; overflow-x: auto;">${JSON.stringify(headers, null, 2)}</pre>
+                        <br>
+                        <strong>图片预览:</strong><br>
+                        <img src="${imageUrl}" style="max-width: 100%; max-height: 200px; border: 1px solid #ddd; border-radius: 4px; margin-top: 10px;" alt="图片预览">
+                    `;
+                } else {
+                    // 对于非图片文件，显示文本内容
+                    const data = await response.text();
+                    resultDiv.className = 'result';
+                    resultDiv.innerHTML = `
+                        ✅ 成功 (${responseTime}ms)<br>
+                        状态码: ${response.status}<br>
+                        请求URL: ${url.toString()}<br>
+                        文件类型: ${contentType}<br>
+                        文件大小: ${data.length} 字符<br>
+                        <br>
+                        <strong>响应头信息:</strong><br>
+                        <pre style="font-size: 0.8em; background: #f5f5f5; padding: 10px; border-radius: 4px; overflow-x: auto;">${JSON.stringify(headers, null, 2)}</pre>
+                        <br>
+                        <strong>内容预览:</strong><br>
+                        <pre style="font-size: 0.9em; background: #f9f9f9; padding: 10px; border-radius: 4px; overflow-x: auto;">${data.substring(0, 200)}${data.length > 200 ? '...' : ''}</pre>
+                    `;
+                }
                 
                 updateStats(true, responseTime);
             } catch (error) {

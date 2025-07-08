@@ -35,12 +35,12 @@ pub fn default_static_options() StaticOptions {
 pub fn serve_static(options StaticOptions) fn (mut Context, fn (mut Context) http.Response) http.Response {
 	return fn [options] (mut c Context, next fn (mut Context) http.Response) http.Response {
 		// 检查请求路径是否匹配静态文件路径
-		if !c.url.starts_with(options.path) {
+		if !c.path.starts_with(options.path) {
 			return next(mut c)
 		}
 		
 		// 提取文件路径
-		mut file_path := c.url[options.path.len..]
+		mut file_path := c.path[options.path.len..]
 		if file_path.starts_with('/') {
 			file_path = file_path[1..]
 		}
@@ -50,7 +50,7 @@ pub fn serve_static(options StaticOptions) fn (mut Context, fn (mut Context) htt
 		
 		// 调试信息
 		println('[DEBUG] Static file request:')
-		println('  URL: ${c.url}')
+		println('  Path: ${c.path}')
 		println('  Path prefix: ${options.path}')
 		println('  File path: ${file_path}')
 		println('  Root: ${options.root}')
@@ -137,7 +137,16 @@ fn serve_file(mut c Context, file_path string, options StaticOptions) http.Respo
 		if_none_match := c.req.header.get_custom('If-None-Match') or { '' }
 		if if_none_match == etag {
 			c.status(304)
-			return c.text('')
+			// 构建响应头
+			mut headers := http.new_header()
+			for key, value in c.headers {
+				headers.add_custom(key, value) or { continue }
+			}
+			return http.Response{
+				status_code: c.status_code
+				header: headers
+				body: ''
+			}
 		}
 	}
 	
@@ -154,7 +163,15 @@ fn serve_file(mut c Context, file_path string, options StaticOptions) http.Respo
 	}
 	
 	// 返回文件内容
-	return c.text(file_content)
+	mut headers := http.new_header()
+	for key, value in c.headers {
+		headers.add_custom(key, value) or { continue }
+	}
+	return http.Response{
+		status_code: c.status_code
+		header: headers
+		body: file_content
+	}
 }
 
 // 安全检查：防止路径遍历攻击

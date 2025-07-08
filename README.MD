@@ -56,7 +56,7 @@ fn main() {
     
     // 中间件
     app.use(fn (mut c hono.Context, next fn (mut hono.Context) http.Response) http.Response {
-        println('[LOG] ${c.url}')
+        println('[LOG] ${c.path}')
         return next(mut c)
     })
     
@@ -205,7 +205,7 @@ return c.json('{"error": "Not Found"}')
 ```v
 // 日志中间件
 app.use(fn (mut c hono.Context, next fn (mut hono.Context) http.Response) http.Response {
-    println('[${time.now()}] ${c.req.method} ${c.url}')
+    println('[${time.now()}] ${c.req.method} ${c.path}')
     return next(mut c)
 })
 

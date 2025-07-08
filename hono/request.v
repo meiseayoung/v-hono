@@ -11,6 +11,7 @@ pub:
 	params map[string]string
 	query  map[string]string
 	url    string
+	path   string  // 当前请求的路径
 pub mut:
 	status_code int = 200
 	headers     map[string]string
@@ -30,7 +31,8 @@ pub fn Context.new(req http.Request, params map[string]string, query map[string]
 		params: params
 		query: query
 		body: body
-		url: url.path
+		url: url.str()  // 设置为完整的URL字符串
+		path: url.path  // 设置 path 属性
 		headers: map[string]string{}
 	}
 }
@@ -145,7 +147,16 @@ pub fn (mut c Context) file_with_options(file_path string, options FileOptions) 
 		if_none_match := c.req.header.get_custom('If-None-Match') or { '' }
 		if if_none_match == etag {
 			c.status(304)
-			return c.text('')
+			// 构建响应头
+			mut headers := http.new_header()
+			for key, value in c.headers {
+				headers.add_custom(key, value) or { continue }
+			}
+			return http.Response{
+				status_code: c.status_code
+				header: headers
+				body: ''
+			}
 		}
 	}
 	
@@ -162,7 +173,15 @@ pub fn (mut c Context) file_with_options(file_path string, options FileOptions) 
 	}
 	
 	// 返回文件内容
-	return c.text(file_content)
+	mut headers := http.new_header()
+	for key, value in c.headers {
+		headers.add_custom(key, value) or { continue }
+	}
+	return http.Response{
+		status_code: c.status_code
+		header: headers
+		body: file_content
+	}
 }
 
 // FileOptions struct for configuring file serving
@@ -239,6 +258,8 @@ fn generate_file_etag(content string, mod_time i64) string {
 pub fn (mut c Context) status(code int) {
 	c.status_code = code
 }
+
+
 
 // 处理器接口，使用 Context
 pub interface IHandler {
