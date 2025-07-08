@@ -1,9 +1,12 @@
-Hello from V-Hono static file server!
-
-This is a test file from the ./public directory.
-You can access this file directly via the root path (/).
+This is a test file for v-hono Context.file functionality.
 
 Features demonstrated:
-- Text file serving
+- Basic file serving
 - Content-Type detection
-- Path mapping from URL to file system 
+- Security validation
+- Caching options
+
+This file can be accessed via:
+- GET /file/test.txt
+- GET /file-cached/test.txt
+- GET /safe-file/test.txt 

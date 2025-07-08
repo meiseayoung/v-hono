@@ -4,7 +4,10 @@ import net.http
 import hono
 
 fn main() {
+	// ===== 1. 应用初始化 =====
 	mut app := hono.Hono.new()
+	
+	// ===== 2. 中间件配置 =====
 	
 	// 日志中间件
 	app.use(fn (mut c hono.Context, next fn (mut hono.Context) http.Response) http.Response {
@@ -12,13 +15,26 @@ fn main() {
 		return next(mut c)
 	})
 	
-	// 静态文件服务 - 默认配置（./public 目录）
+	// 认证中间件
+	app.use(fn (mut c hono.Context, next fn (mut hono.Context) http.Response) http.Response {
+		println("url path: ${c.url}")
+		token := c.query['token']
+		if c.url != "/" &&  token == '' {
+			c.status(401)
+			return c.json('{"error": "Unauthorized", "message": "Token required"}')
+		}
+		return next(mut c)
+	})
+	
+	// ===== 3. 静态文件服务中间件 =====
+	
+	// 默认静态文件服务（./public 目录）
 	app.use(hono.serve_static_default())
 	
-	// 静态文件服务 - 指定路径前缀
+	// 资源文件服务（./static 目录）
 	app.use(hono.serve_static_path('/assets', './static'))
 	
-	// 静态文件服务 - 自定义配置
+	// 上传文件服务（./uploads 目录）
 	options := hono.StaticOptions{
 		root: './uploads'
 		path: '/files'
@@ -34,12 +50,9 @@ fn main() {
 	}
 	app.use(hono.serve_static(options))
 	
-	// 基本路由
-	app.get('/hello', fn (mut c hono.Context) http.Response {
-		return c.text('Hello, World!')
-	})
+	// ===== 4. 基础路由 =====
 	
-	// 根路径
+	// 根路径 - 欢迎页面
 	app.get('/', fn (mut c hono.Context) http.Response {
 		html_content := '<!DOCTYPE html>
 <html lang="zh-CN">
@@ -48,12 +61,14 @@ fn main() {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>V-Hono 完整示例</title>
     <style>
-        body { font-family: Arial, sans-serif; max-width: 1000px; margin: 0 auto; padding: 20px; }
+        body { font-family: Arial, sans-serif; max-width: 1200px; margin: 0 auto; padding: 20px; }
         .section { margin: 20px 0; padding: 15px; border: 1px solid #ddd; border-radius: 5px; }
         .endpoint { background: #f5f5f5; padding: 10px; margin: 5px 0; border-radius: 3px; }
         .feature { color: #2c5aa0; font-weight: bold; }
         .static-section { background: #e8f4fd; border-left: 4px solid #2196F3; }
         .api-section { background: #f3e5f5; border-left: 4px solid #9C27B0; }
+        .file-section { background: #e8f5e8; border-left: 4px solid #4CAF50; }
+        .route-section { background: #fff3e0; border-left: 4px solid #FF9800; }
     </style>
 </head>
 <body>
@@ -95,7 +110,26 @@ fn main() {
         </div>
     </div>
     
-    <div class="section">
+    <div class="section file-section">
+        <h2>📄 文件服务端点</h2>
+        <div class="endpoint">
+            <strong>基本文件服务:</strong> <a href="/file/test.txt">/file/test.txt</a>
+        </div>
+        <div class="endpoint">
+            <strong>缓存文件服务:</strong> <a href="/file-cached/test.txt">/file-cached/test.txt</a>
+        </div>
+        <div class="endpoint">
+            <strong>文件下载:</strong> <a href="/download/downloadable.txt">/download/downloadable.txt</a>
+        </div>
+        <div class="endpoint">
+            <strong>图片文件服务:</strong> <a href="/image/style.css">/image/style.css</a>
+        </div>
+        <div class="endpoint">
+            <strong>安全文件服务:</strong> <a href="/safe-file/test.txt">/safe-file/test.txt</a>
+        </div>
+    </div>
+    
+    <div class="section route-section">
         <h2>🎯 动态路由示例</h2>
         <div class="endpoint">
             <strong>单参数:</strong> <a href="/users/123">/users/123</a>
@@ -111,7 +145,7 @@ fn main() {
     <div class="section">
         <h2>✨ 特性</h2>
         <ul>
-            <li class="feature">🚀 高性能路由系统</li>
+            <li class="feature">🚀 高性能路由系统（Trie + Hybrid）</li>
             <li class="feature">🛡️ 路径遍历攻击防护</li>
             <li class="feature">📁 自动索引文件支持</li>
             <li class="feature">🔒 点文件访问控制</li>
@@ -119,6 +153,8 @@ fn main() {
             <li class="feature">💾 可配置缓存策略</li>
             <li class="feature">🎯 智能 Content-Type 检测</li>
             <li class="feature">🔧 洋葱模型中间件</li>
+            <li class="feature">🔄 支持所有 HTTP 方法</li>
+            <li class="feature">📊 路由性能统计</li>
         </ul>
     </div>
     
@@ -130,6 +166,13 @@ curl http://localhost:8080/test.txt
 curl http://localhost:8080/assets/style.css
 curl http://localhost:8080/files/sample.json
 
+# 文件服务测试
+curl http://localhost:8080/file/test.txt
+curl http://localhost:8080/file-cached/test.txt
+curl http://localhost:8080/download/downloadable.txt
+curl http://localhost:8080/image/style.css
+curl http://localhost:8080/safe-file/test.txt
+
 # API 测试
 curl http://localhost:8080/api/health
 curl http://localhost:8080/api/status
@@ -138,12 +181,23 @@ curl http://localhost:8080/hello
 # 动态路由测试
 curl http://localhost:8080/users/123
 curl http://localhost:8080/posts/456/comments/789
+
+# POST 测试
+curl -X POST http://localhost:8080/api/users -d "{\\"name\\":\\"John\\"}"
+curl -X POST "http://localhost:8080/api/test/create/456?token=abc123" -d "{\\"name\\":\\"Test\\"}"
         </pre>
     </div>
 </body>
 </html>'
 		return c.html(html_content)
 	})
+	
+	// 基础路由
+	app.get('/hello', fn (mut c hono.Context) http.Response {
+		return c.text('Hello, World!')
+	})
+	
+	// ===== 5. API 路由 =====
 	
 	// 健康检查
 	app.get('/api/health', fn (mut c hono.Context) http.Response {
@@ -156,6 +210,7 @@ curl http://localhost:8080/posts/456/comments/789
 		return c.json('{"status": "ok", "static_files": "enabled"}')
 	})
 	
+	// 静态文件服务信息
 	app.get('/api/static-info', fn (mut c hono.Context) http.Response {
 		return c.json('{
 			"static_directories": [
@@ -174,25 +229,29 @@ curl http://localhost:8080/posts/456/comments/789
 		}')
 	})
 	
-	// 动态路由 - 单参数
+	// ===== 6. 动态路由 =====
+	
+	// 单参数路由
 	app.get('/users/:id', fn (mut c hono.Context) http.Response {
 		user_id := c.params['id']
 		return c.json('{"user_id": "${user_id}", "name": "John Doe"}')
 	})
 	
-	// 动态路由 - 多参数
+	// 多参数路由
 	app.get('/posts/:id/comments/:comment_id', fn (mut c hono.Context) http.Response {
 		post_id := c.params['id']
 		comment_id := c.params['comment_id']
 		return c.json('{"post_id": "${post_id}", "comment_id": "${comment_id}", "content": "Great post!"}')
 	})
 	
-	// 动态路由 - 嵌套参数
+	// 嵌套参数路由
 	app.get('/api/users/:user_id/posts/:post_id', fn (mut c hono.Context) http.Response {
 		user_id := c.params['user_id']
 		post_id := c.params['post_id']
 		return c.json('{"user_id": "${user_id}", "post_id": "${post_id}", "title": "Sample Post"}')
 	})
+	
+	// ===== 7. HTTP 方法示例 =====
 	
 	// POST 请求
 	app.post('/api/users', fn (mut c hono.Context) http.Response {
@@ -276,21 +335,115 @@ curl http://localhost:8080/posts/456/comments/789
 		return c.json('{"message": "User partially updated", "user_id": "${user_id}", "data": "${c.body}"}')
 	})
 	
-	// 中间件示例
-	app.use(fn (mut c hono.Context, next fn (mut hono.Context) http.Response) http.Response {
-		println('[LOG] ${c.url}')
-		return next(mut c)
+	// HEAD 请求示例
+	app.head('/api/users/:id', fn (mut c hono.Context) http.Response {
+		user_id := c.params['id']
+		c.headers['X-User-ID'] = user_id
+		c.status(200)
+		return c.text('')
 	})
 	
-	// 认证中间件示例
-	app.use(fn (mut c hono.Context, next fn (mut hono.Context) http.Response) http.Response {
-		token := c.query['token']
-		if token == '' {
-			c.status(401)
-			return c.json('{"error": "Unauthorized", "message": "Token required"}')
-		}
-		return next(mut c)
+	// OPTIONS 请求示例
+	app.options('/api/users/:id', fn (mut c hono.Context) http.Response {
+		c.headers['Allow'] = 'GET, POST, PUT, DELETE, PATCH, HEAD, OPTIONS'
+		c.headers['Access-Control-Allow-Origin'] = '*'
+		c.headers['Access-Control-Allow-Methods'] = 'GET, POST, PUT, DELETE, PATCH, HEAD, OPTIONS'
+		c.status(200)
+		return c.text('')
 	})
+	
+	// ===== 8. 文件服务功能 =====
+	
+	// 基本文件服务示例
+	app.get('/file/:filename', fn (mut c hono.Context) http.Response {
+		filename := c.params['filename']
+		file_path := 'public/${filename}'
+		return c.file(file_path)
+	})
+	
+	// 带选项的文件服务示例
+	app.get('/file-cached/:filename', fn (mut c hono.Context) http.Response {
+		filename := c.params['filename']
+		file_path := 'public/${filename}'
+		
+		options := hono.FileOptions{
+			max_age: 3600  // 缓存1小时
+			headers: {
+				'X-Served-By': 'v-hono'
+			}
+		}
+		
+		return c.file_with_options(file_path, options)
+	})
+	
+	// 自定义Content-Type的文件服务
+	app.get('/download/:filename', fn (mut c hono.Context) http.Response {
+		filename := c.params['filename']
+		file_path := 'uploads/${filename}'
+		
+		options := hono.FileOptions{
+			content_type: 'application/octet-stream'
+			headers: {
+				'Content-Disposition': 'attachment; filename="${filename}"'
+			}
+		}
+		
+		return c.file_with_options(file_path, options)
+	})
+	
+	// 图片文件服务示例
+	app.get('/image/:filename', fn (mut c hono.Context) http.Response {
+		filename := c.params['filename']
+		file_path := 'static/${filename}'
+		
+		options := hono.FileOptions{
+			max_age: 86400  // 缓存24小时
+			headers: {
+				'X-Image-Type': 'static'
+			}
+		}
+		
+		return c.file_with_options(file_path, options)
+	})
+	
+	// 禁用缓存的文件服务
+	app.get('/dynamic/:filename', fn (mut c hono.Context) http.Response {
+		filename := c.params['filename']
+		file_path := 'dynamic/${filename}'
+		
+		options := hono.FileOptions{
+			no_cache: true
+			headers: {
+				'X-Dynamic': 'true'
+			}
+		}
+		
+		return c.file_with_options(file_path, options)
+	})
+	
+	// ===== 9. 错误处理示例 =====
+	
+	// 安全文件服务
+	app.get('/safe-file/:filename', fn (mut c hono.Context) http.Response {
+		filename := c.params['filename']
+		
+		// 安全检查：只允许访问特定目录
+		if filename.contains('..') || filename.starts_with('/') {
+			c.status(403)
+			return c.text('Access denied')
+		}
+		
+		file_path := 'public/${filename}'
+		return c.file(file_path)
+	})
+	
+	// 404 错误处理
+	app.get('/**', fn (mut c hono.Context) http.Response {
+		c.status(404)
+		return c.json('{"error": "Not Found", "message": "The requested resource was not found"}')
+	})
+	
+	// ===== 10. 服务器启动 =====
 	
 	println('🚀 V-Hono 完整示例启动中...')
 	println('📍 服务器地址: http://localhost:8080')
@@ -306,26 +459,41 @@ curl http://localhost:8080/posts/456/comments/789
 	println('  - GET /api/static-info')
 	println('  - GET /hello')
 	println('')
+	println('📄 文件服务端点:')
+	println('  - GET /file/:filename - 基本文件服务')
+	println('  - GET /file-cached/:filename - 缓存文件服务')
+	println('  - GET /download/:filename - 文件下载')
+	println('  - GET /image/:filename - 图片文件服务')
+	println('  - GET /dynamic/:filename - 动态文件服务')
+	println('  - GET /safe-file/:filename - 安全文件服务')
+	println('')
 	println('🎯 动态路由:')
 	println('  - GET /users/123')
 	println('  - GET /posts/456/comments/789')
 	println('  - GET /api/users/101/posts/202')
 	println('')
-	println('📝 POST 请求:')
+	println('📝 HTTP 方法示例:')
 	println('  - POST /api/users')
 	println('  - POST /api/users/123')
 	println('  - POST /api/test/create/456')
-	println('')
-	println('🔄 其他方法:')
 	println('  - PUT /api/users/123')
 	println('  - DELETE /api/users/123')
 	println('  - PATCH /api/users/123')
+	println('  - HEAD /api/users/123')
+	println('  - OPTIONS /api/users/123')
 	println('')
 	println('🧪 测试命令示例:')
 	println('  # 静态文件测试')
 	println('  curl http://localhost:8080/test.txt')
 	println('  curl http://localhost:8080/assets/style.css')
 	println('  curl http://localhost:8080/files/sample.json')
+	println('')
+	println('  # 文件服务测试')
+	println('  curl http://localhost:8080/file/test.txt')
+	println('  curl http://localhost:8080/file-cached/test.txt')
+	println('  curl http://localhost:8080/download/downloadable.txt')
+	println('  curl http://localhost:8080/image/style.css')
+	println('  curl http://localhost:8080/safe-file/test.txt')
 	println('')
 	println('  # API 测试')
 	println('  curl http://localhost:8080/api/health')

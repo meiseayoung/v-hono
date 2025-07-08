@@ -1,0 +1,15 @@
+{
+  "message": "Hello from v-hono Context.file!",
+  "features": [
+    "File serving with automatic Content-Type detection",
+    "Security validation against path traversal",
+    "Caching support with ETag and Last-Modified",
+    "Custom headers and options",
+    "Error handling for missing files"
+  ],
+  "example": {
+    "endpoint": "/file/sample.json",
+    "content_type": "application/json",
+    "cached": true
+  }
+} 
