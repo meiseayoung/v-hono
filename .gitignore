@@ -1,7 +1,6 @@
 # Binaries for programs and plugins
 main
 v
-*.exe
 *.exe~
 *.so
 *.dylib
@@ -22,4 +21,3 @@ bin/
 # vweb and database
 *.db
 *.js
-*.exe
