@@ -406,7 +406,7 @@ V-Hono 服务器
 
 ```bash
 # 克隆项目
-git clone <repository-url>
+git clone https://github.com/meiseayoung/v-hono.git
 cd v-hono
 
 # 启动分片上传服务器
