@@ -26,7 +26,7 @@
 
 ```bash
 # 克隆仓库
-git clone https://github.com/your-username/v-hono.git
+git clone https://github.com/meiseayoung/v-hono.git
 cd v-hono
 
 # 运行示例
