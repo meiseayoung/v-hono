@@ -1,7 +1,6 @@
 module hono
 
 import regex
-import time
 
 // 路由节点类型
 enum RouteType {
@@ -142,7 +141,7 @@ fn (mut router ContextHybridRouter) match_dynamic_route(method string, path stri
 	}
 	
 	for handler in router.dynamic_routes {
-		match_result, replaced_path_reg, param_names := router.match_path_with_regex(path, handler.path)
+		match_result, replaced_path_reg, _ := router.match_path_with_regex(path, handler.path)
 		if match_result {
 			mut param_map := map[string]string{}
 			

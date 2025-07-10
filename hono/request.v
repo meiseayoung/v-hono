@@ -187,12 +187,12 @@ pub fn (mut c Context) file_with_options(file_path string, options FileOptions) 
 // FileOptions struct for configuring file serving
 pub struct FileOptions {
 pub:
-	status_code    int = 0              // 自定义状态码，0表示使用默认200
-	content_type   string = ''          // 自定义Content-Type
+	status_code    int              // 自定义状态码，0表示使用默认200
+	content_type   string          // 自定义Content-Type
 	last_modified  bool = true          // 是否设置Last-Modified头
 	etag          bool = true           // 是否设置ETag头
-	max_age       int = 0               // 缓存时间（秒）
-	no_cache      bool = false          // 是否禁用缓存
+	max_age       int               // 缓存时间（秒）
+	no_cache      bool          // 是否禁用缓存
 	headers       map[string]string     // 自定义响应头
 }
 

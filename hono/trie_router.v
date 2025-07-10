@@ -52,7 +52,7 @@ pub fn (mut tr ContextTrieRouter) add_route(method string, path string, handler 
 	}
 	
 	segments := path.split('/').filter(it != '')
-	mut current := tr.method_trees[method]
+	mut current := tr.method_trees[method] or { return }
 	
 	for i, seg in segments {
 		if seg.starts_with(':') {
@@ -72,7 +72,7 @@ pub fn (mut tr ContextTrieRouter) add_route(method string, path string, handler 
 			if seg !in current.children {
 				current.children[seg] = ContextTrieNode.new(seg, TrieNodeType.static, '')
 			}
-			current = current.children[seg]
+			current = current.children[seg] or { return }
 		}
 		
 		// 在最后一个节点设置处理器
@@ -94,13 +94,13 @@ pub fn (mut tr ContextTrieRouter) match_route(method string, path string) ?Conte
 	}
 	
 	segments := path.split('/').filter(it != '')
-	mut current := tr.method_trees[method]
+	mut current := tr.method_trees[method] or { return none }
 	mut params := map[string]string{}
 	
 	for seg in segments {
 		// 先尝试静态匹配
 		if seg in current.children {
-			current = current.children[seg]
+			current = current.children[seg] or { return none }
 		} else if current.param_child != unsafe { nil } {
 			// 参数匹配
 			params[current.param_child.param_name] = seg

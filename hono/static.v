@@ -2,7 +2,6 @@ module hono
 
 import os
 import net.http
-import net.urllib
 
 // 静态文件服务配置
 pub struct StaticOptions {
