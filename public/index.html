@@ -244,6 +244,71 @@
                 grid-template-columns: 1fr;
             }
         }
+
+        /* 分块上传相关样式 */
+        .upload-area {
+            border: 2px dashed #ccc;
+            border-radius: 8px;
+            padding: 40px;
+            text-align: center;
+            margin: 20px 0;
+            transition: border-color 0.3s;
+        }
+
+        .upload-area:hover {
+            border-color: #007bff;
+        }
+
+        .upload-area.dragover {
+            border-color: #007bff;
+            background-color: #f8f9fa;
+        }
+
+        .file-info {
+            margin: 10px 0;
+            padding: 15px;
+            background-color: #f8f9fa;
+            border-radius: 5px;
+            display: none;
+        }
+
+        .progress-container {
+            margin: 20px 0;
+            display: none;
+        }
+
+        .progress-bar {
+            width: 100%;
+            height: 20px;
+            background-color: #e9ecef;
+            border-radius: 10px;
+            overflow: hidden;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #007bff, #28a745);
+            width: 0%;
+            transition: width 0.3s;
+        }
+
+        .chunk-status {
+            margin: 10px 0;
+            font-size: 14px;
+            color: #666;
+        }
+
+        .status.success {
+            background-color: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+
+        .status.error {
+            background-color: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
     </style>
 </head>
 <body>
@@ -281,6 +346,10 @@
                     <h3>🔄 HTTP 方法支持</h3>
                     <p>完整支持 GET、POST、PUT、DELETE、PATCH、HEAD、OPTIONS 等 HTTP 方法</p>
                 </div>
+                <div class="feature-card">
+                    <h3>📤 分块上传</h3>
+                    <p>支持大文件分片上传、断点续传、秒传功能，内置文件完整性验证</p>
+                </div>
             </div>
         </div>
 
@@ -307,6 +376,7 @@
                     <button class="tab-button" onclick="showTab('files')">文件服务</button>
                     <button class="tab-button" onclick="showTab('routes')">路由测试</button>
                     <button class="tab-button" onclick="showTab('static')">静态文件</button>
+                    <button class="tab-button" onclick="showTab('upload')">分块上传</button>
                 </div>
 
                 <!-- API 测试 -->
@@ -352,6 +422,40 @@
                         <button class="test-button" onclick="testStatic('/assets/style.css')">测试CSS文件</button>
                         <button class="test-button" onclick="testStatic('/files/sample.json')">测试JSON文件</button>
                         <div id="static-result" class="result" style="display: none;"></div>
+                    </div>
+                </div>
+
+                <!-- 分块上传测试 -->
+                <div id="upload" class="tab-content">
+                    <div class="test-area">
+                        <h4>📤 分块上传功能</h4>
+                        <p>支持大文件分片上传、断点续传、秒传功能</p>
+                        
+                        <div class="upload-area" id="uploadArea">
+                            <p>📁 拖拽文件到此处或点击选择文件</p>
+                            <input type="file" id="fileInput" style="display: none;" multiple>
+                            <button class="test-button" onclick="document.getElementById('fileInput').click()">选择文件</button>
+                        </div>
+
+                        <div class="file-info" id="fileInfo">
+                            <h4>文件信息</h4>
+                            <p><strong>文件名:</strong> <span id="fileName"></span></p>
+                            <p><strong>文件大小:</strong> <span id="fileSize"></span></p>
+                            <p><strong>分片数量:</strong> <span id="chunkCount"></span></p>
+                            <p><strong>分片大小:</strong> <span id="chunkSize"></span></p>
+                        </div>
+
+                        <div class="progress-container" id="progressContainer">
+                            <h4>上传进度</h4>
+                            <div class="progress-bar">
+                                <div class="progress-fill" id="progressFill"></div>
+                            </div>
+                            <div class="chunk-status" id="chunkStatus"></div>
+                        </div>
+
+                        <div class="status" id="uploadStatus"></div>
+
+                        <button class="test-button" id="uploadBtn" onclick="startUpload()" style="display: none;">开始上传</button>
                     </div>
                 </div>
             </div>
@@ -412,6 +516,23 @@
             </div>
             <div class="endpoint">
                 <strong>文件目录:</strong> <a href="/files/sample.json" target="_blank">/files/sample.json</a> (来自 ./uploads)
+            </div>
+
+            <h3>📤 分块上传端点</h3>
+            <div class="endpoint">
+                <strong>分片上传:</strong> <a href="/upload/chunk" target="_blank">POST /upload/chunk</a>
+            </div>
+            <div class="endpoint">
+                <strong>上传状态:</strong> <a href="/upload/status" target="_blank">GET /upload/status</a>
+            </div>
+            <div class="endpoint">
+                <strong>分片查询:</strong> <a href="/upload/chunks" target="_blank">GET /upload/chunks</a>
+            </div>
+            <div class="endpoint">
+                <strong>分片检查:</strong> <a href="/upload/chunk_exists" target="_blank">GET /upload/chunk_exists</a>
+            </div>
+            <div class="endpoint">
+                <strong>文件管理:</strong> <a href="/api/files" target="_blank">GET /api/files</a>
             </div>
         </div>
 
@@ -477,6 +598,7 @@ app.listen(':8080')
         </div>
     </div>
 
+    <script src="https://cdn.jsdelivr.net/npm/spark-md5@3.0.2/spark-md5.min.js"></script>
     <script>
         let requestCount = 0;
         let successCount = 0;
@@ -769,6 +891,252 @@ app.listen(':8080')
                 setToken();
             }
         });
+
+        // ===== 分块上传功能 =====
+        const CHUNK_SIZE = 2 * 1024 * 1024; // 2MB
+        let selectedFile = null;
+        let fileHash = null;
+        let totalChunks = 0;
+        let uploadedChunks = 0;
+
+        // 文件选择处理
+        document.getElementById('fileInput').addEventListener('change', handleFileSelect);
+        
+        // 拖拽处理
+        const uploadArea = document.getElementById('uploadArea');
+        uploadArea.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            uploadArea.style.borderColor = '#007bff';
+            uploadArea.style.backgroundColor = '#f8f9fa';
+        });
+        uploadArea.addEventListener('dragleave', () => {
+            uploadArea.style.borderColor = '#ccc';
+            uploadArea.style.backgroundColor = 'transparent';
+        });
+        uploadArea.addEventListener('drop', (e) => {
+            e.preventDefault();
+            uploadArea.style.borderColor = '#ccc';
+            uploadArea.style.backgroundColor = 'transparent';
+            const files = e.dataTransfer.files;
+            if (files.length > 0) {
+                document.getElementById('fileInput').files = files;
+                handleFileSelect();
+            }
+        });
+
+        function handleFileSelect() {
+            const file = document.getElementById('fileInput').files[0];
+            if (!file) return;
+
+            // 重置上传状态
+            resetUploadState();
+
+            selectedFile = file;
+            totalChunks = Math.ceil(file.size / CHUNK_SIZE);
+            
+            // 显示文件信息
+            document.getElementById('fileName').textContent = file.name;
+            document.getElementById('fileSize').textContent = formatFileSize(file.size);
+            document.getElementById('chunkCount').textContent = totalChunks;
+            document.getElementById('chunkSize').textContent = formatFileSize(CHUNK_SIZE);
+            
+            document.getElementById('fileInfo').style.display = 'block';
+            document.getElementById('uploadBtn').style.display = 'inline-block';
+            
+            // 计算文件hash
+            calculateFileHash(file).then(hash => {
+                fileHash = hash;
+                console.log('File hash:', hash);
+            });
+        }
+
+        // 重置上传状态
+        function resetUploadState() {
+            // 重置进度条
+            document.getElementById('progressFill').style.width = '0%';
+            document.getElementById('chunkStatus').textContent = '';
+            
+            // 隐藏进度容器
+            document.getElementById('progressContainer').style.display = 'none';
+            
+            // 重置状态信息
+            document.getElementById('uploadStatus').style.display = 'none';
+            
+            // 重置上传按钮
+            const uploadBtn = document.getElementById('uploadBtn');
+            uploadBtn.disabled = false;
+            uploadBtn.textContent = '开始上传';
+            
+            // 重置变量
+            uploadedChunks = 0;
+        }
+
+        async function startUpload() {
+            if (!selectedFile || !fileHash) {
+                showUploadStatus('请先选择文件', 'error');
+                return;
+            }
+
+            const uploadBtn = document.getElementById('uploadBtn');
+            uploadBtn.disabled = true;
+            uploadBtn.textContent = '上传中...';
+
+            document.getElementById('progressContainer').style.display = 'block';
+            showUploadStatus('开始上传...', 'success');
+
+            try {
+                // 直接开始上传分片，每个分片都会检查是否存在
+                for (let i = 0; i < totalChunks; i++) {
+                    const chunk = selectedFile.slice(i * CHUNK_SIZE, (i + 1) * CHUNK_SIZE);
+                    const chunkHash = await calculateChunkHash(chunk);
+
+                    // 检查分片是否已存在（包括秒传检测）
+                    const checkResult = await checkChunkExists(fileHash, i, chunkHash);
+                    
+                    // 如果检测到所有分片都已上传完成，立即结束上传
+                    if (checkResult.all_uploaded) {
+                        console.log('检测到秒传，所有分片都已上传完成！');
+                        updateProgress(totalChunks, totalChunks); // 更新进度到100%
+                        showUploadStatus('秒传成功！文件已完整上传。', 'success');
+                        uploadBtn.textContent = '上传完成';
+                        return;
+                    }
+                    
+                    // 如果分片已存在，跳过上传
+                    if (checkResult.exists) {
+                        console.log(`分片 ${i} 已存在，跳过上传`);
+                        updateProgress(i + 1, totalChunks);
+                        continue;
+                    }
+
+                    // 上传分片
+                    await uploadChunk(selectedFile, chunk, {
+                        fileHash, chunkIndex: i, totalChunks, chunkHash
+                    });
+                    
+                    updateProgress(i + 1, totalChunks);
+                    console.log(`分片 ${i} 上传完成`);
+                }
+
+                showUploadStatus('上传完成！文件已自动合并。', 'success');
+                uploadBtn.textContent = '上传完成';
+                
+            } catch (error) {
+                console.error('上传失败:', error);
+                showUploadStatus('上传失败: ' + error.message, 'error');
+                uploadBtn.disabled = false;
+                uploadBtn.textContent = '重新上传';
+            }
+        }
+
+        // 计算文件hash
+        async function calculateFileHash(file) {
+            return new Promise(resolve => {
+                const spark = new SparkMD5.ArrayBuffer();
+                const reader = new FileReader();
+                reader.onload = e => {
+                    spark.append(e.target.result);
+                    resolve(spark.end());
+                };
+                reader.readAsArrayBuffer(file);
+            });
+        }
+
+        // 计算分片hash
+        async function calculateChunkHash(chunk) {
+            return new Promise(resolve => {
+                const spark = new SparkMD5.ArrayBuffer();
+                const reader = new FileReader();
+                reader.onload = e => {
+                    spark.append(e.target.result);
+                    resolve(spark.end());
+                };
+                reader.readAsArrayBuffer(chunk);
+            });
+        }
+
+        // 检查分片hash是否已存在
+        async function checkChunkExists(fileHash, chunkIndex, chunkHash) {
+            const url = new URL('/upload/chunk_exists', window.location.origin);
+            url.searchParams.set('file_hash', fileHash);
+            url.searchParams.set('chunk_index', chunkIndex);
+            url.searchParams.set('chunk_hash', chunkHash);
+            url.searchParams.set('file_size', selectedFile.size);
+            url.searchParams.set('trunk_size', CHUNK_SIZE);
+            
+            if (currentToken) {
+                url.searchParams.set('token', currentToken);
+            }
+            
+            const res = await fetch(url.toString());
+            if (!res.ok) return { exists: false, all_uploaded: false };
+            const data = await res.json();
+            
+            // 如果所有分片都已上传完成，直接返回 true 表示秒传成功
+            if (data.all_chunk_uploaded) {
+                console.log('所有分片都已上传完成，秒传成功！');
+                return { exists: true, all_uploaded: true };
+            }
+            
+            return { exists: data.exists, all_uploaded: false };
+        }
+
+        // 上传分片
+        async function uploadChunk(file, chunk, { fileHash, chunkIndex, totalChunks, chunkHash }) {
+            const form = new FormData();
+            form.append('file_hash', fileHash);
+            form.append('chunk_index', chunkIndex);
+            form.append('total_chunks', totalChunks);
+            form.append('filename', file.name);
+            form.append('file_size', file.size);
+            form.append('chunk_size', CHUNK_SIZE);
+            form.append('chunk_hash', chunkHash);
+            form.append('chunk', chunk, file.name + '.part' + chunkIndex);
+
+            const url = new URL('/upload/chunk', window.location.origin);
+            if (currentToken) {
+                url.searchParams.set('token', currentToken);
+            }
+
+            const response = await fetch(url.toString(), { 
+                method: 'POST', 
+                body: form 
+            });
+            
+            if (!response.ok) {
+                const error = await response.json();
+                throw new Error(error.error || '上传失败');
+            }
+            
+            const result = await response.json();
+            if (result.all_chunk_uploaded) {
+                console.log('所有分片已上传完成，文件已自动合并:', result.file_path);
+            }
+        }
+
+        // 更新进度
+        function updateProgress(current, total) {
+            const percentage = (current / total) * 100;
+            document.getElementById('progressFill').style.width = percentage + '%';
+            document.getElementById('chunkStatus').textContent = current + '/' + total + ' 分片已上传 (' + percentage.toFixed(1) + '%)';
+        }
+
+        // 显示上传状态
+        function showUploadStatus(message, type) {
+            const status = document.getElementById('uploadStatus');
+            status.textContent = message;
+            status.className = 'status ' + type;
+            status.style.display = 'block';
+        }
+
+        // 格式化文件大小
+        function formatFileSize(bytes) {
+            if (bytes === 0) return '0 Bytes';
+            const k = 1024;
+            const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+        }
     </script>
 </body>
 </html> 
