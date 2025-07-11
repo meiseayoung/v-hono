@@ -21,6 +21,9 @@
 - ⚡ **秒传功能**：基于文件哈希的秒传检测
 - 🗂️ **文件去重**：基于文件哈希的去重机制
 - 💾 **数据库存储**：使用 SQLite 存储文件元数据
+- 🚀 **双请求池系统**：活跃请求池 + 待请求池，支持并发控制和智能调度
+- ⚡ **并发优化**：可配置最大并发数，自动管理请求队列
+- 📊 **实时状态监控**：实时显示活跃请求数和等待请求数
 
 ## 安装
 
@@ -370,6 +373,10 @@ v-hono/
 
 V-Hono 大文件分片上传系统是一个基于 V 语言和 Hono 框架构建的高性能文件上传解决方案。支持大文件分片上传、断点续传、秒传、自动合并等功能。
 
+**相关文档：**
+- [分片上传系统详解](README_CHUNK_UPLOAD.md) - 完整的分片上传功能文档
+- [双请求池系统详解](README_REQUEST_POOL.md) - 请求池系统的设计和实现
+
 ### 主要特性
 
 - ✅ **分片上传**：支持大文件分片上传，默认分片大小 1MB
@@ -380,6 +387,8 @@ V-Hono 大文件分片上传系统是一个基于 V 语言和 Hono 框架构建�
 - ✅ **数据库存储**：使用 SQLite 存储文件元数据
 - ✅ **RESTful API**：完整的 REST API 接口
 - ✅ **Web 界面**：提供友好的 Web 上传界面
+- ✅ **双请求池系统**：活跃请求池 + 待请求池，智能并发控制
+- ✅ **实时状态监控**：实时显示上传进度和请求池状态
 
 ### 系统架构
 
@@ -565,6 +574,99 @@ uploads/
 #### 1. 前端 JavaScript 示例
 
 ```javascript
+// 请求池管理类
+class RequestPool {
+    constructor(maxConcurrent = 6) {
+        this.maxConcurrent = maxConcurrent;
+        this.activePool = new Map(); // 活跃请求池 {requestId: Promise}
+        this.pendingPool = []; // 待请求池 [{requestId, task, resolve, reject}]
+        this.requestIdCounter = 0;
+    }
+
+    // 生成请求ID
+    generateRequestId() {
+        return ++this.requestIdCounter;
+    }
+
+    // 添加请求到池中
+    async addRequest(task) {
+        const requestId = this.generateRequestId();
+        
+        return new Promise((resolve, reject) => {
+            const request = {
+                requestId,
+                task,
+                resolve,
+                reject
+            };
+
+            // 如果活跃池未满，直接执行
+            if (this.activePool.size < this.maxConcurrent) {
+                this.executeRequest(request);
+            } else {
+                // 否则加入待请求池
+                this.pendingPool.push(request);
+                console.log(`请求 ${requestId} 加入待请求池，当前待请求数: ${this.pendingPool.length}`);
+            }
+        });
+    }
+
+    // 执行请求
+    async executeRequest(request) {
+        const { requestId, task, resolve, reject } = request;
+        
+        console.log(`开始执行请求 ${requestId}，当前活跃请求数: ${this.activePool.size + 1}`);
+        
+        // 将请求添加到活跃池
+        const promise = task()
+            .then(result => {
+                console.log(`请求 ${requestId} 执行成功`);
+                resolve(result);
+                return result;
+            })
+            .catch(error => {
+                console.log(`请求 ${requestId} 执行失败:`, error);
+                reject(error);
+                throw error;
+            })
+            .finally(() => {
+                // 请求完成后从活跃池移除
+                this.activePool.delete(requestId);
+                console.log(`请求 ${requestId} 完成，从活跃池移除，当前活跃请求数: ${this.activePool.size}`);
+                
+                // 检查待请求池，如果有待请求则执行
+                this.processPendingRequests();
+            });
+
+        this.activePool.set(requestId, promise);
+    }
+
+    // 处理待请求池中的请求
+    processPendingRequests() {
+        while (this.pendingPool.length > 0 && this.activePool.size < this.maxConcurrent) {
+            const request = this.pendingPool.shift();
+            this.executeRequest(request);
+            console.log(`从待请求池取出请求 ${request.requestId} 执行，剩余待请求数: ${this.pendingPool.length}`);
+        }
+    }
+
+    // 获取池状态
+    getStatus() {
+        return {
+            activeCount: this.activePool.size,
+            pendingCount: this.pendingPool.length,
+            maxConcurrent: this.maxConcurrent
+        };
+    }
+
+    // 清空所有池
+    clear() {
+        this.activePool.clear();
+        this.pendingPool = [];
+        console.log('请求池已清空');
+    }
+}
+
 // 计算文件哈希
 async function calculateFileHash(file) {
     return new Promise(resolve => {
@@ -604,26 +706,40 @@ async function uploadChunk(file, chunk, { fileHash, chunkIndex, chunkHash }) {
     return false; // 继续上传
 }
 
-// 分片上传主函数
-async function uploadFile(file) {
+// 使用请求池的分片上传主函数
+async function uploadFileWithPool(file) {
     const fileHash = await calculateFileHash(file);
     const chunkSize = 2 * 1024 * 1024; // 2MB
     const totalChunks = Math.ceil(file.size / chunkSize);
     
+    // 创建请求池实例
+    const requestPool = new RequestPool(6);
+    
+    // 创建所有分片的上传任务并添加到请求池
+    const uploadPromises = [];
     for (let i = 0; i < totalChunks; i++) {
-        const chunk = file.slice(i * chunkSize, (i + 1) * chunkSize);
-        const chunkHash = await calculateFileHash(chunk);
-        
-        const completed = await uploadChunk(file, chunk, {
-            fileHash,
-            chunkIndex: i,
-            chunkHash
+        const chunkIndex = i;
+        const promise = requestPool.addRequest(async () => {
+            const chunk = file.slice(chunkIndex * chunkSize, (chunkIndex + 1) * chunkSize);
+            const chunkHash = await calculateFileHash(chunk);
+            
+            return await uploadChunk(file, chunk, {
+                fileHash,
+                chunkIndex,
+                chunkHash
+            });
         });
         
-        if (completed) {
-            break; // 上传完成
-        }
+        uploadPromises.push(promise);
     }
+
+    // 等待所有上传任务完成
+    const results = await Promise.all(uploadPromises);
+    
+    // 清空请求池
+    requestPool.clear();
+    
+    return results;
 }
 ```
 
@@ -680,17 +796,49 @@ if chunk_count >= int(expected_chunks) && total_chunk_size >= expected_file_size
 - 上传状态使用内存缓存，提高查询速度
 - 支持配置清理策略，自动清理临时文件
 
-#### 2. 并发处理
+#### 2. 双请求池系统
+
+**架构设计：**
+- **活跃请求池**：存储正在执行的请求，使用 Map 结构 `{requestId: Promise}`
+- **待请求池**：存储等待执行的请求，使用数组结构 `[{requestId, task, resolve, reject}]`
+- **智能调度**：当活跃池未满时直接执行，满时加入待请求池
+- **自动管理**：请求完成后自动从活跃池移除，并处理待请求池中的请求
+
+**核心特性：**
+- **可配置并发数**：默认最大并发数为 6，可根据服务器性能调整
+- **请求ID管理**：每个请求都有唯一ID，便于追踪和调试
+- **状态实时更新**：实时显示活跃请求数和等待请求数
+- **自动清理**：上传完成后自动清空请求池
+
+**使用示例：**
+```javascript
+// 创建请求池实例（最大并发6个）
+const requestPool = new RequestPool(6);
+
+// 添加请求到池中
+const promise = requestPool.addRequest(async () => {
+    // 上传分片的逻辑
+    return await uploadChunk(chunk);
+});
+
+// 获取池状态
+const status = requestPool.getStatus();
+console.log(`活跃: ${status.activeCount}/${status.maxConcurrent}, 等待: ${status.pendingCount}`);
+```
+
+#### 3. 并发处理
 
 - 支持多用户同时上传
 - 分片级别的并发控制
 - 文件级别的锁机制
+- 基于请求池的智能并发管理
 
-#### 3. 错误处理
+#### 4. 错误处理
 
 - 网络异常自动重试
 - 分片损坏自动重新上传
 - 完整的错误日志记录
+- 请求池级别的错误隔离
 
 ### 监控和日志
 
@@ -750,6 +898,12 @@ v run chunk_upload_example.v
 - 用户认证
 - 文件权限
 - 访问控制
+
+#### 4. 双请求池系统
+
+详细文档请参考：
+- [双请求池系统详解](README_REQUEST_POOL.md) - 完整的系统设计和实现指南
+- [分片上传系统](README_CHUNK_UPLOAD.md) - 包含请求池的分片上传完整方案
 
 ## 性能特性
 

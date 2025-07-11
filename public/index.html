@@ -450,10 +450,11 @@
                             <div class="progress-bar">
                                 <div class="progress-fill" id="progressFill"></div>
                             </div>
-                            <div class="chunk-status" id="chunkStatus"></div>
-                        </div>
+                                                    <div class="chunk-status" id="chunkStatus"></div>
+                        <div class="chunk-status" id="poolStatus" style="font-size: 12px; color: #888; margin-top: 5px;"></div>
+                    </div>
 
-                        <div class="status" id="uploadStatus"></div>
+                    <div class="status" id="uploadStatus"></div>
 
                         <button class="test-button" id="uploadBtn" onclick="startUpload()" style="display: none;">开始上传</button>
                     </div>
@@ -893,11 +894,121 @@ app.listen(':8080')
         });
 
         // ===== 分块上传功能 =====
-        const CHUNK_SIZE = 2 * 1024 * 1024; // 2MB
+        const CHUNK_SIZE = 10 * 1024 * 1024; // 10MB 固定分片大小
         let selectedFile = null;
         let fileHash = null;
         let totalChunks = 0;
         let uploadedChunks = 0;
+
+        // 请求池管理
+        class RequestPool {
+            constructor(maxConcurrent = 6) {
+                this.maxConcurrent = maxConcurrent;
+                this.activePool = new Map(); // 活跃请求池 {requestId: Promise}
+                this.pendingPool = []; // 待请求池 [{requestId, task, resolve, reject}]
+                this.requestIdCounter = 0;
+            }
+
+            // 生成请求ID
+            generateRequestId() {
+                return ++this.requestIdCounter;
+            }
+
+            // 添加请求到池中
+            async addRequest(task) {
+                const requestId = this.generateRequestId();
+                
+                return new Promise((resolve, reject) => {
+                    const request = {
+                        requestId,
+                        task,
+                        resolve,
+                        reject
+                    };
+
+                    // 如果活跃池未满，直接执行
+                    if (this.activePool.size < this.maxConcurrent) {
+                        this.executeRequest(request);
+                    } else {
+                        // 否则加入待请求池
+                        this.pendingPool.push(request);
+                        console.log(`请求 ${requestId} 加入待请求池，当前待请求数: ${this.pendingPool.length}`);
+                    }
+                });
+            }
+
+            // 执行请求
+            async executeRequest(request) {
+                const { requestId, task, resolve, reject } = request;
+                
+                console.log(`开始执行请求 ${requestId}，当前活跃请求数: ${this.activePool.size + 1}`);
+                
+                // 将请求添加到活跃池
+                const promise = task()
+                    .then(result => {
+                        console.log(`请求 ${requestId} 执行成功`);
+                        resolve(result);
+                        return result;
+                    })
+                    .catch(error => {
+                        console.log(`请求 ${requestId} 执行失败:`, error);
+                        reject(error);
+                        throw error;
+                    })
+                    .finally(() => {
+                        // 请求完成后从活跃池移除
+                        this.activePool.delete(requestId);
+                        console.log(`请求 ${requestId} 完成，从活跃池移除，当前活跃请求数: ${this.activePool.size}`);
+                        
+                        // 检查待请求池，如果有待请求则执行
+                        this.processPendingRequests();
+                        
+                        // 触发状态更新事件
+                        this.triggerStatusUpdate();
+                    });
+
+                this.activePool.set(requestId, promise);
+            }
+
+            // 处理待请求池中的请求
+            processPendingRequests() {
+                while (this.pendingPool.length > 0 && this.activePool.size < this.maxConcurrent) {
+                    const request = this.pendingPool.shift();
+                    this.executeRequest(request);
+                    console.log(`从待请求池取出请求 ${request.requestId} 执行，剩余待请求数: ${this.pendingPool.length}`);
+                }
+                // 处理完待请求后也触发状态更新
+                this.triggerStatusUpdate();
+            }
+
+            // 获取池状态
+            getStatus() {
+                return {
+                    activeCount: this.activePool.size,
+                    pendingCount: this.pendingPool.length,
+                    maxConcurrent: this.maxConcurrent
+                };
+            }
+
+            // 清空所有池
+            clear() {
+                this.activePool.clear();
+                this.pendingPool = [];
+                console.log('请求池已清空');
+                this.triggerStatusUpdate();
+            }
+
+            // 触发状态更新
+            triggerStatusUpdate() {
+                // 使用 setTimeout 确保状态更新在下一个事件循环中执行
+                setTimeout(() => {
+                    updatePoolStatus();
+                }, 0);
+            }
+        }
+
+        // 创建全局请求池实例
+        const requestPool = new RequestPool(6);
 
         // 文件选择处理
         document.getElementById('fileInput').addEventListener('change', handleFileSelect);
@@ -955,6 +1066,7 @@ app.listen(':8080')
             // 重置进度条
             document.getElementById('progressFill').style.width = '0%';
             document.getElementById('chunkStatus').textContent = '';
+            document.getElementById('poolStatus').textContent = '';
             
             // 隐藏进度容器
             document.getElementById('progressContainer').style.display = 'none';
@@ -969,6 +1081,9 @@ app.listen(':8080')
             
             // 重置变量
             uploadedChunks = 0;
+            
+            // 清空请求池
+            requestPool.clear();
         }
 
         async function startUpload() {
@@ -984,48 +1099,97 @@ app.listen(':8080')
             document.getElementById('progressContainer').style.display = 'block';
             showUploadStatus('开始上传...', 'success');
 
+            // 清空之前的请求池
+            requestPool.clear();
+
             try {
-                // 直接开始上传分片，每个分片都会检查是否存在
+                let completedChunks = 0;
+                let failedChunks = [];
+                let instantSuccess = false;
+
+                // 创建所有分片的上传任务并添加到请求池
+                const uploadPromises = [];
                 for (let i = 0; i < totalChunks; i++) {
-                    const chunk = selectedFile.slice(i * CHUNK_SIZE, (i + 1) * CHUNK_SIZE);
-                    const chunkHash = await calculateChunkHash(chunk);
+                    const chunkIndex = i;
+                    const promise = requestPool.addRequest(async () => {
+                        try {
+                            const chunk = selectedFile.slice(chunkIndex * CHUNK_SIZE, (chunkIndex + 1) * CHUNK_SIZE);
+                            const chunkHash = await calculateChunkHash(chunk);
 
-                    // 检查分片是否已存在（包括秒传检测）
-                    const checkResult = await checkChunkExists(fileHash, i, chunkHash);
-                    
-                    // 如果检测到所有分片都已上传完成，立即结束上传
-                    if (checkResult.all_uploaded) {
-                        console.log('检测到秒传，所有分片都已上传完成！');
-                        updateProgress(totalChunks, totalChunks); // 更新进度到100%
-                        showUploadStatus('秒传成功！文件已完整上传。', 'success');
-                        uploadBtn.textContent = '上传完成';
-                        return;
-                    }
-                    
-                    // 如果分片已存在，跳过上传
-                    if (checkResult.exists) {
-                        console.log(`分片 ${i} 已存在，跳过上传`);
-                        updateProgress(i + 1, totalChunks);
-                        continue;
-                    }
+                            // 检查分片是否已存在（包括秒传检测）
+                            const checkResult = await checkChunkExists(fileHash, chunkIndex, chunkHash);
+                            
+                            // 如果检测到所有分片都已上传完成，立即结束上传
+                            if (checkResult.all_uploaded) {
+                                console.log('检测到秒传，所有分片都已上传完成！');
+                                updateProgress(totalChunks, totalChunks); // 更新进度到100%
+                                showUploadStatus('秒传成功！文件已完整上传。', 'success');
+                                uploadBtn.textContent = '上传完成';
+                                instantSuccess = true;
+                                return { success: true, chunkIndex, isInstant: true };
+                            }
+                            
+                            // 如果分片已存在，跳过上传
+                            if (checkResult.exists) {
+                                console.log(`分片 ${chunkIndex} 已存在，跳过上传`);
+                                completedChunks++;
+                                updateProgress(completedChunks, totalChunks);
+                                return { success: true, chunkIndex, skipped: true };
+                            }
 
-                    // 上传分片
-                    await uploadChunk(selectedFile, chunk, {
-                        fileHash, chunkIndex: i, totalChunks, chunkHash
+                            // 上传分片
+                            await uploadChunk(selectedFile, chunk, {
+                                fileHash, chunkIndex, totalChunks, chunkHash
+                            });
+                            
+                            completedChunks++;
+                            updateProgress(completedChunks, totalChunks);
+                            console.log(`分片 ${chunkIndex} 上传完成`);
+                            return { success: true, chunkIndex };
+                        } catch (error) {
+                            console.error(`分片 ${chunkIndex} 上传失败:`, error);
+                            failedChunks.push({ chunkIndex, error: error.message });
+                            return { success: false, chunkIndex, error: error.message };
+                        }
                     });
                     
-                    updateProgress(i + 1, totalChunks);
-                    console.log(`分片 ${i} 上传完成`);
+                    uploadPromises.push(promise);
                 }
 
-                showUploadStatus('上传完成！文件已自动合并。', 'success');
-                uploadBtn.textContent = '上传完成';
+                            // 等待所有上传任务完成
+            const results = await Promise.all(uploadPromises);
+
+            // 检查是否有秒传成功
+            if (instantSuccess) {
+                return; // 秒传成功，直接返回
+            }
+
+            // 检查上传结果
+            const failedResults = results.filter(result => !result.success);
+            if (failedResults.length > 0) {
+                const errorMessage = `部分分片上传失败: ${failedResults.map(f => `分片${f.chunkIndex}(${f.error})`).join(', ')}`;
+                showUploadStatus(errorMessage, 'error');
+                uploadBtn.disabled = false;
+                uploadBtn.textContent = '重新上传';
+                return;
+            }
+
+            showUploadStatus('上传完成！文件已自动合并。', 'success');
+            uploadBtn.textContent = '上传完成';
+            
+            // 确保最终状态显示正确
+            setTimeout(() => {
+                updatePoolStatus();
+            }, 100);
                 
             } catch (error) {
                 console.error('上传失败:', error);
                 showUploadStatus('上传失败: ' + error.message, 'error');
                 uploadBtn.disabled = false;
                 uploadBtn.textContent = '重新上传';
+            } finally {
+                // 清空请求池
+                requestPool.clear();
             }
         }
 
@@ -1119,6 +1283,23 @@ app.listen(':8080')
             const percentage = (current / total) * 100;
             document.getElementById('progressFill').style.width = percentage + '%';
             document.getElementById('chunkStatus').textContent = current + '/' + total + ' 分片已上传 (' + percentage.toFixed(1) + '%)';
+            
+            // 更新请求池状态
+            updatePoolStatus();
+        }
+
+        // 更新请求池状态显示
+        function updatePoolStatus() {
+            const status = requestPool.getStatus();
+            const poolStatusElement = document.getElementById('poolStatus');
+            if (poolStatusElement) {
+                // 如果所有请求都完成了，显示完成状态
+                if (status.activeCount === 0 && status.pendingCount === 0) {
+                    poolStatusElement.textContent = `请求池状态: 所有请求已完成`;
+                } else {
+                    poolStatusElement.textContent = `请求池状态: ${status.activeCount}/${status.maxConcurrent} 活跃, ${status.pendingCount} 等待中`;
+                }
+            }
         }
 
         // 显示上传状态

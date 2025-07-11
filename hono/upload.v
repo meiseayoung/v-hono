@@ -11,6 +11,7 @@ pub struct ChunkUploadConfig {
 pub:
 	chunk_size     int = 1024 * 1024  // 1MB 默认分片大小
 	max_file_size  int = 1024 * 1024 * 1024  // 1GB 最大文件大小
+	max_chunk_size int = 10 * 1024 * 1024  // 10MB 最大分片大小
 	temp_dir       string = './uploads/chunks'  // 临时分片目录（分片保存在 temp_dir/filehash/chunksize/ 下）
 	upload_dir     string = './uploads/files'  // 最终文件目录
 	cleanup_delay  int = 3600  // 1小时后清理临时文件
@@ -115,11 +116,10 @@ pub fn (mut manager ChunkUploadManager) handle_chunk_upload(mut ctx Context) htt
 	}
 	chunk_size := chunk_size_str.int()
 	
-	// 验证分片大小（允许更大的分片大小，但不超过10MB）
-	max_allowed_chunk_size := 10 * 1024 * 1024 // 10MB
-	if chunk_size > max_allowed_chunk_size {
+	// 验证分片大小（使用配置中的最大分片大小）
+	if chunk_size > manager.config.max_chunk_size {
 		ctx.status(413)
-		return ctx.json('{"error": "Chunk size too large", "max_chunk_size": "$max_allowed_chunk_size"}')
+		return ctx.json('{"error": "Chunk size too large", "max_chunk_size": "${manager.config.max_chunk_size}"}')
 	}
 	
 	// 获取文件数据

@@ -277,6 +277,20 @@ fn main() {
 		return c.json('{"success": true, "message": "File deleted successfully"}')
 	})
 
+	// 获取上传配置信息
+	app.get('/api/upload-config', fn [mut upload_manager] (mut c hono.Context) http.Response {
+		config := {
+			'chunk_size': upload_manager.config.chunk_size.str()
+			'max_file_size': upload_manager.config.max_file_size.str()
+			'max_chunk_size': upload_manager.config.max_chunk_size.str()
+			'temp_dir': upload_manager.config.temp_dir
+			'upload_dir': upload_manager.config.upload_dir
+			'cleanup_delay': upload_manager.config.cleanup_delay.str()
+			'clear_chunks_on_complete': upload_manager.config.clear_chunks_on_complete.str()
+		}
+		return c.json(json.encode(config))
+	})
+
 	// ===== 5. 基础路由 =====
 	
 	// 根路径 - 欢迎页面
