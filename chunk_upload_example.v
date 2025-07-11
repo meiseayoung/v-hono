@@ -1,5 +1,3 @@
-module main
-
 import hono
 import net.http
 import os
