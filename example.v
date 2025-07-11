@@ -84,20 +84,17 @@ fn main() {
 			return c.json('{"error": "Upload not found"}')
 		}
 		
-		// 检查是否所有分片都已上传（基于分片大小总和）
+		// 检查是否所有分片都已上传（使用分片大小记录文件）
 		chunk_dir := os.join_path(os.join_path('./uploads/chunks', file_hash.trim_space()), upload_status.chunk_size.str())
 		mut total_chunk_size := u64(0)
-		mut chunk_count := 0
+		mut chunk_count := upload_status.uploaded_chunks.len
 		
 		if os.exists(chunk_dir) {
-			for i := 0; ; i++ {
-				chunk_path := os.join_path(chunk_dir, 'chunk_${i}.part')
-				if !os.exists(chunk_path) {
-					break
-				}
-				chunk_info := os.stat(chunk_path) or { continue }
-				total_chunk_size += chunk_info.size
-				chunk_count++
+			// 读取分片大小记录文件
+			size_record_path := os.join_path(chunk_dir, 'total_size.record')
+			if os.exists(size_record_path) {
+				size_data := os.read_file(size_record_path) or { '0' }
+				total_chunk_size = size_data.u64()
 			}
 		}
 		
@@ -108,6 +105,7 @@ fn main() {
 
 	// 检查分片是否存在接口（秒传功能）
 	app.get('/upload/chunk_exists', fn [mut upload_manager] (mut c hono.Context) http.Response {
+		mut chunk_path := ''
 		file_hash := c.query['file_hash'] or {
 			c.status(400)
 			return c.json('{"error": "Missing file_hash parameter"}')
@@ -135,7 +133,7 @@ fn main() {
 			chunk_size = upload_status.chunk_size
 		}
 
-		chunk_path := os.join_path(os.join_path(os.join_path('./uploads/chunks', file_hash.trim_space()), chunk_size.str()), 'chunk_${chunk_index}.part')
+		chunk_path = os.join_path(os.join_path(os.join_path('./uploads/chunks', file_hash.trim_space()), chunk_size.str()), 'chunk_${chunk_index}.part')
 		println('[DEBUG] Checking chunk: $chunk_path')
 		println('[DEBUG] File hash: $file_hash')
 		println('[DEBUG] Chunk index: $chunk_index')
@@ -180,20 +178,34 @@ fn main() {
 		if !all_chunk_uploaded {
 			chunk_dir := os.join_path(os.join_path('./uploads/chunks', file_hash.trim_space()), chunk_size.str())
 			if os.exists(chunk_dir) {
-				// 计算所有分片文件的大小总和
+				// 使用分片大小记录文件，避免遍历
 				mut total_chunk_size := u64(0)
 				mut chunk_count := 0
-				// 遍历所有分片文件
-				for i := 0; ; i++ {
-					chunk_file_path := '${chunk_dir}/chunk_${i}.part'
-					if !os.exists(chunk_file_path) {
-						break
-					}
-					// 获取分片文件大小
-					chunk_info := os.stat(chunk_file_path) or { break }
-					total_chunk_size += chunk_info.size
-					chunk_count++
+				
+				// 读取分片大小记录文件
+				size_record_path := os.join_path(chunk_dir, 'total_size.record')
+				if os.exists(size_record_path) {
+					size_data := os.read_file(size_record_path) or { '0' }
+					total_chunk_size = size_data.u64()
 				}
+				
+				// 从内存中的上传状态获取分片数量
+				if upload_status := upload_manager.uploads[file_hash] {
+					chunk_count = upload_status.uploaded_chunks.len
+				} else {
+					// 如果内存中没有状态，遍历分片文件来计算实际分片数量
+					mut actual_chunk_count := 0
+					for i := 0; ; i++ {
+						chunk_path = os.join_path(chunk_dir, 'chunk_${i}.part')
+						if os.exists(chunk_path) {
+							actual_chunk_count++
+						} else {
+							break
+						}
+					}
+					chunk_count = actual_chunk_count
+				}
+				
 				// 使用传入的文件大小
 				expected_file_size := u64(file_size)
 				println('[DEBUG] Total chunk size: $total_chunk_size, Expected file size: $expected_file_size, Chunk count: $chunk_count')
@@ -220,6 +232,7 @@ fn main() {
 		// 只检查文件是否存在，不验证 hash（因为前后端 hash 算法可能不一致）
 		// 如果需要严格验证，可以在这里添加 hash 检查逻辑
 		
+		// 返回时字段改回 all_chunk_uploaded
 		return c.json('{"exists": $exists, "all_chunk_uploaded": $all_chunk_uploaded}')
 	})
 

@@ -1106,28 +1106,49 @@ app.listen(':8080')
                 let completedChunks = 0;
                 let failedChunks = [];
                 let instantSuccess = false;
+                let cancelledTasks = false; // 新增：标记是否已取消任务
 
-                // 创建所有分片的上传任务并添加到请求池
+                // 先串行检查第一个分片，检测秒传
+                console.log('先检查第一个分片，检测秒传...');
+                const firstChunk = selectedFile.slice(0, CHUNK_SIZE);
+                const firstChunkHash = await calculateChunkHash(firstChunk);
+                const firstCheckResult = await checkChunkExists(fileHash, 0, firstChunkHash);
+                
+                // 如果第一个分片检测到秒传，直接返回
+                if (firstCheckResult.all_chunk_uploaded) {
+                    console.log('检测到秒传，所有分片都已上传完成！');
+                    updateProgress(totalChunks, totalChunks); // 更新进度到100%
+                    showUploadStatus('秒传成功！文件已完整上传。', 'success');
+                    uploadBtn.textContent = '上传完成';
+                    return;
+                }
+                
+                // 如果第一个分片已存在，记录进度
+                if (firstCheckResult.exists) {
+                    console.log('分片 0 已存在，跳过上传');
+                    completedChunks++;
+                    updateProgress(completedChunks, totalChunks);
+                } else {
+                    // 第一个分片不存在，需要上传
+                    await uploadChunk(selectedFile, firstChunk, {
+                        fileHash, chunkIndex: 0, totalChunks, chunkHash: firstChunkHash
+                    });
+                    completedChunks++;
+                    updateProgress(completedChunks, totalChunks);
+                    console.log('分片 0 上传完成');
+                }
+
+                // 创建剩余分片的上传任务并添加到请求池（并发处理）
                 const uploadPromises = [];
-                for (let i = 0; i < totalChunks; i++) {
+                for (let i = 1; i < totalChunks; i++) {
                     const chunkIndex = i;
                     const promise = requestPool.addRequest(async () => {
                         try {
                             const chunk = selectedFile.slice(chunkIndex * CHUNK_SIZE, (chunkIndex + 1) * CHUNK_SIZE);
                             const chunkHash = await calculateChunkHash(chunk);
 
-                            // 检查分片是否已存在（包括秒传检测）
+                            // 检查分片是否已存在
                             const checkResult = await checkChunkExists(fileHash, chunkIndex, chunkHash);
-                            
-                            // 如果检测到所有分片都已上传完成，立即结束上传
-                            if (checkResult.all_uploaded) {
-                                console.log('检测到秒传，所有分片都已上传完成！');
-                                updateProgress(totalChunks, totalChunks); // 更新进度到100%
-                                showUploadStatus('秒传成功！文件已完整上传。', 'success');
-                                uploadBtn.textContent = '上传完成';
-                                instantSuccess = true;
-                                return { success: true, chunkIndex, isInstant: true };
-                            }
                             
                             // 如果分片已存在，跳过上传
                             if (checkResult.exists) {
@@ -1233,16 +1254,16 @@ app.listen(':8080')
             }
             
             const res = await fetch(url.toString());
-            if (!res.ok) return { exists: false, all_uploaded: false };
+            if (!res.ok) return { exists: false, all_chunk_uploaded: false };
             const data = await res.json();
             
             // 如果所有分片都已上传完成，直接返回 true 表示秒传成功
             if (data.all_chunk_uploaded) {
                 console.log('所有分片都已上传完成，秒传成功！');
-                return { exists: true, all_uploaded: true };
+                return { exists: true, all_chunk_uploaded: true };
             }
             
-            return { exists: data.exists, all_uploaded: false };
+            return { exists: data.exists, all_chunk_uploaded: false };
         }
 
         // 上传分片

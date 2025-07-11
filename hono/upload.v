@@ -153,28 +153,18 @@ pub fn (mut manager ChunkUploadManager) handle_chunk_upload(mut ctx Context) htt
 	println('[DEBUG] Updated upload status for file: $file_hash, chunk: $chunk_index')
 	
 	// 判断是否所有分片都已上传，自动合并
-	// 基于分片大小总和来判断是否合并
+	// 使用记录文件来避免遍历分片文件计算总大小
 	mut all_chunk_uploaded := false
 	merge_chunk_dir := os.join_path(manager.config.temp_dir, file_hash.trim_space(), chunk_size.str())
 	
 	if os.exists(merge_chunk_dir) {
-		mut total_chunk_size := u64(0)
-		mut chunk_count := 0
-		mut max_chunk_index := -1
+		// 更新已上传分片的总大小记录
+		manager.update_chunk_size_record(file_hash, chunk_size, file_data.len)
 		
-		// 遍历所有分片文件，计算总大小和找到最大分片索引
-		for i := 0; ; i++ {
-			merge_chunk_path := os.join_path(merge_chunk_dir, 'chunk_${i}.part')
-			if !os.exists(merge_chunk_path) {
-				break
-			}
-			chunk_info := os.stat(merge_chunk_path) or { continue }
-			total_chunk_size += chunk_info.size
-			chunk_count++
-			max_chunk_index = i
-		}
+		// 读取已上传分片的总大小
+		total_chunk_size := manager.get_chunk_size_record(file_hash, chunk_size)
 		
-		println('[DEBUG] [MergeCheck] total_chunk_size=$total_chunk_size, file_size=$file_size, chunk_count=$chunk_count, max_chunk_index=$max_chunk_index')
+		println('[DEBUG] [MergeCheck] total_chunk_size=$total_chunk_size, file_size=$file_size, chunk_index=$chunk_index')
 		
 		// 如果分片文件大小总和 >= file_size，认为可以合并
 		if total_chunk_size >= u64(file_size) {
@@ -186,15 +176,8 @@ pub fn (mut manager ChunkUploadManager) handle_chunk_upload(mut ctx Context) htt
 	println('[DEBUG] All chunks uploaded: $all_chunk_uploaded')
 	
 	if all_chunk_uploaded {
-		// 重新计算分片数量用于合并
-		mut actual_total_chunks := 0
-		for i := 0; ; i++ {
-			check_chunk_path := os.join_path(merge_chunk_dir, 'chunk_${i}.part')
-			if !os.exists(check_chunk_path) {
-				break
-			}
-			actual_total_chunks++
-		}
+		// 使用内存中的上传状态来获取分片数量，避免遍历文件
+		actual_total_chunks := manager.uploads[file_hash].uploaded_chunks.len
 		
 		// 获取文件扩展名
 		file_ext := get_file_extension(filename)
@@ -406,6 +389,9 @@ fn (mut manager ChunkUploadManager) merge_chunks(file_hash string, total_chunks 
 fn (mut manager ChunkUploadManager) cleanup_chunks(file_hash string, chunk_size int) {
 	chunk_dir := os.join_path(manager.config.temp_dir, file_hash.trim_space(), chunk_size.str())
 	if os.exists(chunk_dir) {
+		// 清理分片大小记录
+		manager.cleanup_chunk_size_record(file_hash, chunk_size)
+		
 		// 删除整个分片目录
 		os.rmdir_all(chunk_dir) or { 
 			println('[DEBUG] Failed to remove chunk directory: $err')
@@ -451,6 +437,60 @@ fn get_file_extension(filename string) string {
 		return '.${parts.last()}'
 	}
 	return ''
+}
+
+// 更新分片大小记录
+pub fn (mut manager ChunkUploadManager) update_chunk_size_record(file_hash string, chunk_size int, current_chunk_size int) {
+	chunk_dir := os.join_path(manager.config.temp_dir, file_hash.trim_space(), chunk_size.str())
+	size_record_path := os.join_path(chunk_dir, 'total_size.record')
+	
+	// 确保目录存在
+	os.mkdir_all(chunk_dir) or {
+		println('[DEBUG] Failed to create chunk directory: $err')
+		return
+	}
+	
+	// 读取现有的总大小记录
+	mut total_size := u64(0)
+	if os.exists(size_record_path) {
+		size_data := os.read_file(size_record_path) or { '0' }
+		total_size = size_data.u64()
+	}
+	
+	// 更新总大小
+	total_size += u64(current_chunk_size)
+	
+	// 写入更新后的总大小
+	os.write_file(size_record_path, total_size.str()) or {
+		println('[DEBUG] Failed to write size record: $err')
+	}
+	
+	println('[DEBUG] Updated size record: $total_size bytes')
+}
+
+// 获取分片大小记录
+pub fn (manager ChunkUploadManager) get_chunk_size_record(file_hash string, chunk_size int) u64 {
+	chunk_dir := os.join_path(manager.config.temp_dir, file_hash.trim_space(), chunk_size.str())
+	size_record_path := os.join_path(chunk_dir, 'total_size.record')
+	
+	if os.exists(size_record_path) {
+		size_data := os.read_file(size_record_path) or { '0' }
+		return size_data.u64()
+	}
+	
+	return u64(0)
+}
+
+// 清理分片大小记录
+pub fn (mut manager ChunkUploadManager) cleanup_chunk_size_record(file_hash string, chunk_size int) {
+	chunk_dir := os.join_path(manager.config.temp_dir, file_hash.trim_space(), chunk_size.str())
+	size_record_path := os.join_path(chunk_dir, 'total_size.record')
+	
+	if os.exists(size_record_path) {
+		os.rm(size_record_path) or {
+			println('[DEBUG] Failed to remove size record: $err')
+		}
+	}
 }
 
 // 清理文件上传状态（当文件被删除时调用）

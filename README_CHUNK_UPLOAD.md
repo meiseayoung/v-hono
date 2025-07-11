@@ -214,7 +214,8 @@ uploads/
 │       └── {chunk_size}/     # 按分片大小分组
 │           ├── chunk_0.part  # 分片文件
 │           ├── chunk_1.part
-│           └── ...
+│           ├── ...
+│           └── total_size.record  # 分片大小记录文件（优化性能）
 ├── files/                    # 最终文件目录
 │   ├── {file_hash}.{ext}    # 合并后的文件
 │   └── ...
@@ -689,19 +690,51 @@ class ManagedRequestPool extends RequestPool {
 
 ## 核心算法
 
-### 1. 分片合并判断
+### 1. 分片合并判断（优化版）
 
-系统使用以下逻辑判断是否所有分片都已上传：
+系统使用分片大小记录文件来避免遍历分片文件计算总大小，提高性能：
 
 ```v
-// 计算理论上需要的分片数量
-expected_chunks := (expected_file_size + u64(chunk_size) - 1) / u64(chunk_size)
+// 更新分片大小记录
+fn (mut manager ChunkUploadManager) update_chunk_size_record(file_hash string, chunk_size int, current_chunk_size int) {
+    chunk_dir := os.join_path(manager.config.temp_dir, file_hash.trim_space(), chunk_size.str())
+    size_record_path := os.join_path(chunk_dir, 'total_size.record')
+    
+    // 读取现有的总大小记录
+    mut total_size := u64(0)
+    if os.exists(size_record_path) {
+        size_data := os.read_file(size_record_path) or { '0' }
+        total_size = size_data.u64() or { u64(0) }
+    }
+    
+    // 更新总大小
+    total_size += u64(current_chunk_size)
+    
+    // 写入更新后的总大小
+    os.write_file(size_record_path, total_size.str()) or {
+        println('[DEBUG] Failed to write size record: $err')
+    }
+}
 
-// 只有当分片数量达到预期且总大小 >= 文件大小时，才认为上传完成
-if chunk_count >= int(expected_chunks) && total_chunk_size >= expected_file_size {
-    all_chunk_uploaded = true
+// 获取分片大小记录
+fn (manager ChunkUploadManager) get_chunk_size_record(file_hash string, chunk_size int) u64 {
+    chunk_dir := os.join_path(manager.config.temp_dir, file_hash.trim_space(), chunk_size.str())
+    size_record_path := os.join_path(chunk_dir, 'total_size.record')
+    
+    if os.exists(size_record_path) {
+        size_data := os.read_file(size_record_path) or { '0' }
+        return size_data.u64() or { u64(0) }
+    }
+    
+    return u64(0)
 }
 ```
+
+**性能优化说明：**
+- **传统方法**：每次需要遍历所有分片文件，计算总大小（O(n)复杂度）
+- **优化方法**：维护一个记录文件，实时更新总大小（O(1)复杂度）
+- **性能提升**：对于大文件（数百个分片），性能提升显著
+- **存储结构**：`./uploads/chunks/{file_hash}/{chunk_size}/total_size.record`
 
 ### 2. 文件去重机制
 
@@ -722,6 +755,7 @@ if chunk_count >= int(expected_chunks) && total_chunk_size >= expected_file_size
 - 分片文件存储在磁盘，不占用大量内存
 - 上传状态使用内存缓存，提高查询速度
 - 支持配置清理策略，自动清理临时文件
+- **分片大小记录文件**：避免遍历分片文件计算总大小，提高合并判断性能
 
 ### 2. 并发处理
 
