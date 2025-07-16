@@ -1,0 +1,436 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>用户角色菜单管理系统</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 10px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+            overflow: hidden;
+        }
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 20px;
+            text-align: center;
+        }
+        .content {
+            padding: 30px;
+        }
+        .section {
+            margin-bottom: 30px;
+            padding: 20px;
+            border: 1px solid #e0e0e0;
+            border-radius: 8px;
+            background: #f9f9f9;
+        }
+        .form-group {
+            margin-bottom: 15px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+            color: #333;
+        }
+        input, select, button {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 14px;
+            box-sizing: border-box;
+        }
+        button {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            cursor: pointer;
+            font-weight: bold;
+            margin-top: 10px;
+        }
+        button:hover {
+            opacity: 0.9;
+        }
+        .result {
+            margin-top: 15px;
+            padding: 10px;
+            border-radius: 4px;
+            background: #f0f0f0;
+            border-left: 4px solid #667eea;
+        }
+        .menu-tree {
+            margin-top: 15px;
+        }
+        .menu-item {
+            padding: 8px;
+            margin: 2px 0;
+            background: white;
+            border-radius: 4px;
+            border-left: 3px solid #667eea;
+        }
+        .menu-item .icon {
+            margin-right: 8px;
+            color: #667eea;
+        }
+        .submenu {
+            margin-left: 20px;
+        }
+        .error {
+            background: #ffebee;
+            border-left-color: #f44336;
+            color: #c62828;
+        }
+        .success {
+            background: #e8f5e8;
+            border-left-color: #4caf50;
+            color: #2e7d32;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>用户角色菜单管理系统</h1>
+            <p>基于 v-hono 框架的用户认证和权限管理</p>
+        </div>
+        
+        <div class="content">
+            <!-- 用户注册 -->
+            <div class="section">
+                <h2>用户注册</h2>
+                <div class="form-group">
+                    <label for="reg-username">用户名:</label>
+                    <input type="text" id="reg-username" placeholder="输入用户名">
+                </div>
+                <div class="form-group">
+                    <label for="reg-email">邮箱:</label>
+                    <input type="email" id="reg-email" placeholder="输入邮箱">
+                </div>
+                <div class="form-group">
+                    <label for="reg-password">密码:</label>
+                    <input type="password" id="reg-password" placeholder="输入密码">
+                </div>
+                <div class="form-group">
+                    <label for="reg-role">角色:</label>
+                    <select id="reg-role">
+                        <option value="user">普通用户</option>
+                        <option value="manager">管理员</option>
+                        <option value="admin">超级管理员</option>
+                        <option value="guest">访客</option>
+                    </select>
+                </div>
+                <button onclick="register()">注册</button>
+                <div id="reg-result" class="result" style="display: none;"></div>
+            </div>
+
+            <!-- 用户登录 -->
+            <div class="section">
+                <h2>用户登录</h2>
+                <div class="form-group">
+                    <label for="login-username">用户名:</label>
+                    <input type="text" id="login-username" placeholder="输入用户名">
+                </div>
+                <div class="form-group">
+                    <label for="login-password">密码:</label>
+                    <input type="password" id="login-password" placeholder="输入密码">
+                </div>
+                <button onclick="login()">登录</button>
+                <div id="login-result" class="result" style="display: none;"></div>
+            </div>
+
+            <!-- 用户信息 -->
+            <div class="section">
+                <h2>用户信息</h2>
+                <button onclick="getProfile()">获取用户信息</button>
+                <div id="profile-result" class="result" style="display: none;"></div>
+            </div>
+
+            <!-- 菜单管理 -->
+            <div class="section">
+                <h2>菜单管理</h2>
+                <button onclick="getMenus()">获取用户菜单</button>
+                <button onclick="getAllMenus()">获取所有菜单</button>
+                <div id="menus-result" class="result" style="display: none;"></div>
+            </div>
+
+            <!-- 受保护的路由测试 -->
+            <div class="section">
+                <h2>权限测试</h2>
+                <button onclick="testUserRoute()">测试用户路由</button>
+                <button onclick="testAdminRoute()">测试管理员路由</button>
+                <div id="test-result" class="result" style="display: none;"></div>
+            </div>
+
+            <!-- 注销 -->
+            <div class="section">
+                <h2>注销</h2>
+                <button onclick="logout()">注销</button>
+                <div id="logout-result" class="result" style="display: none;"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let authToken = '';
+
+        function showResult(elementId, message, isError = false) {
+            const element = document.getElementById(elementId);
+            element.textContent = message;
+            element.style.display = 'block';
+            element.className = 'result ' + (isError ? 'error' : 'success');
+        }
+
+        function hideResult(elementId) {
+            document.getElementById(elementId).style.display = 'none';
+        }
+
+        async function register() {
+            hideResult('reg-result');
+            const username = document.getElementById('reg-username').value;
+            const email = document.getElementById('reg-email').value;
+            const password = document.getElementById('reg-password').value;
+            const role = document.getElementById('reg-role').value;
+
+            try {
+                const response = await fetch('/api/auth/register', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ username, email, password, role })
+                });
+
+                const data = await response.json();
+                if (response.ok) {
+                    showResult('reg-result', '注册成功: ' + JSON.stringify(data, null, 2));
+                } else {
+                    showResult('reg-result', '注册失败: ' + data.error, true);
+                }
+            } catch (error) {
+                showResult('reg-result', '请求失败: ' + error.message, true);
+            }
+        }
+
+        async function login() {
+            hideResult('login-result');
+            const username = document.getElementById('login-username').value;
+            const password = document.getElementById('login-password').value;
+
+            try {
+                const response = await fetch('/api/auth/login', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ username, password })
+                });
+
+                const data = await response.json();
+                if (response.ok) {
+                    authToken = data.token;
+                    showResult('login-result', '登录成功: ' + JSON.stringify(data, null, 2));
+                } else {
+                    showResult('login-result', '登录失败: ' + data.error, true);
+                }
+            } catch (error) {
+                showResult('login-result', '请求失败: ' + error.message, true);
+            }
+        }
+
+        async function getProfile() {
+            hideResult('profile-result');
+            if (!authToken) {
+                showResult('profile-result', '请先登录', true);
+                return;
+            }
+
+            try {
+                const response = await fetch('/api/auth/profile', {
+                    headers: {
+                        'Authorization': authToken
+                    }
+                });
+
+                const data = await response.json();
+                if (response.ok) {
+                    showResult('profile-result', '用户信息: ' + JSON.stringify(data, null, 2));
+                } else {
+                    showResult('profile-result', '获取失败: ' + data.error, true);
+                }
+            } catch (error) {
+                showResult('profile-result', '请求失败: ' + error.message, true);
+            }
+        }
+
+        async function getMenus() {
+            hideResult('menus-result');
+            if (!authToken) {
+                showResult('menus-result', '请先登录', true);
+                return;
+            }
+
+            try {
+                const response = await fetch('/api/auth/menus', {
+                    headers: {
+                        'Authorization': authToken
+                    }
+                });
+
+                const data = await response.json();
+                if (response.ok) {
+                    const menuHtml = renderMenuTree(data.menus);
+                    showResult('menus-result', '用户菜单: ' + menuHtml);
+                } else {
+                    showResult('menus-result', '获取失败: ' + data.error, true);
+                }
+            } catch (error) {
+                showResult('menus-result', '请求失败: ' + error.message, true);
+            }
+        }
+
+        async function getAllMenus() {
+            hideResult('menus-result');
+            if (!authToken) {
+                showResult('menus-result', '请先登录', true);
+                return;
+            }
+
+            try {
+                const response = await fetch('/api/auth/menus/all', {
+                    headers: {
+                        'Authorization': authToken
+                    }
+                });
+
+                const data = await response.json();
+                if (response.ok) {
+                    const menuHtml = renderMenuTree(data.menus);
+                    showResult('menus-result', '所有菜单: ' + menuHtml);
+                } else {
+                    showResult('menus-result', '获取失败: ' + data.error, true);
+                }
+            } catch (error) {
+                showResult('menus-result', '请求失败: ' + error.message, true);
+            }
+        }
+
+        function renderMenuTree(menus) {
+            if (!menus || menus.length === 0) {
+                return '<div class="menu-tree">暂无菜单</div>';
+            }
+
+            let html = '<div class="menu-tree">';
+            for (const menu of menus) {
+                html += renderMenuItem(menu);
+            }
+            html += '</div>';
+            return html;
+        }
+
+        function renderMenuItem(menu) {
+            let html = '<div class="menu-item">';
+            html += '<span class="icon">' + (menu.icon || '📄') + '</span>';
+            html += '<strong>' + menu.name + '</strong> (' + menu.path + ')';
+            if (menu.children && menu.children.length > 0) {
+                html += '<div class="submenu">';
+                for (const child of menu.children) {
+                    html += renderMenuItem(child);
+                }
+                html += '</div>';
+            }
+            html += '</div>';
+            return html;
+        }
+
+        async function testUserRoute() {
+            hideResult('test-result');
+            if (!authToken) {
+                showResult('test-result', '请先登录', true);
+                return;
+            }
+
+            try {
+                const response = await fetch('/api/protected/user', {
+                    headers: {
+                        'Authorization': authToken
+                    }
+                });
+
+                const data = await response.json();
+                if (response.ok) {
+                    showResult('test-result', '用户路由测试成功: ' + JSON.stringify(data, null, 2));
+                } else {
+                    showResult('test-result', '测试失败: ' + data.error, true);
+                }
+            } catch (error) {
+                showResult('test-result', '请求失败: ' + error.message, true);
+            }
+        }
+
+        async function testAdminRoute() {
+            hideResult('test-result');
+            if (!authToken) {
+                showResult('test-result', '请先登录', true);
+                return;
+            }
+
+            try {
+                const response = await fetch('/api/protected/admin', {
+                    headers: {
+                        'Authorization': authToken
+                    }
+                });
+
+                const data = await response.json();
+                if (response.ok) {
+                    showResult('test-result', '管理员路由测试成功: ' + JSON.stringify(data, null, 2));
+                } else {
+                    showResult('test-result', '测试失败: ' + data.error, true);
+                }
+            } catch (error) {
+                showResult('test-result', '请求失败: ' + error.message, true);
+            }
+        }
+
+        async function logout() {
+            hideResult('logout-result');
+            if (!authToken) {
+                showResult('logout-result', '请先登录', true);
+                return;
+            }
+
+            try {
+                const response = await fetch('/api/auth/logout', {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': authToken
+                    }
+                });
+
+                const data = await response.json();
+                if (response.ok) {
+                    authToken = '';
+                    showResult('logout-result', '注销成功: ' + data.message);
+                } else {
+                    showResult('logout-result', '注销失败: ' + data.error, true);
+                }
+            } catch (error) {
+                showResult('logout-result', '请求失败: ' + error.message, true);
+            }
+        }
+    </script>
+</body>
+</html> 
