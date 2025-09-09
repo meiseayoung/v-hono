@@ -3,6 +3,7 @@ module hono
 import net.http
 import net.urllib
 import os
+import strings
 
 // Context 结构体，类似 Hono.js 的实现
 pub struct Context {
@@ -194,6 +195,11 @@ pub:
 	max_age       int               // 缓存时间（秒）
 	no_cache      bool          // 是否禁用缓存
 	headers       map[string]string     // 自定义响应头
+	// 流式传输配置
+	stream_threshold u64 = 50 * 1024 * 1024  // 50MB，超过此大小使用流式传输
+	buffer_size      int = 8192              // 流式传输缓冲区大小（8KB）
+	enable_range     bool = true             // 是否支持Range请求
+	compress         bool                    // 是否启用压缩（对流式传输）
 }
 
 // 安全检查：防止路径遍历攻击
@@ -281,3 +287,264 @@ pub:
 pub fn (ch ContextHandler) handle(mut c Context) http.Response {
 	return ch.handler(mut c)
 }
+
+// Range 请求结构体
+struct RangeRequest {
+	start u64
+	end   u64
+	total u64
+}
+
+// 解析 Range 请求头
+fn parse_range_header(range_header string, file_size u64) ?RangeRequest {
+	if !range_header.starts_with('bytes=') {
+		return none
+	}
+	
+	range_part := range_header[6..] // 移除 'bytes=' 前缀
+	parts := range_part.split('-')
+	
+	if parts.len != 2 {
+		return none
+	}
+	
+	start_str := parts[0].trim_space()
+	end_str := parts[1].trim_space()
+	
+	mut start := u64(0)
+	mut end := file_size - 1
+	
+	if start_str != '' {
+		start = start_str.u64()
+	}
+	
+	if end_str != '' {
+		end = end_str.u64()
+		if end >= file_size {
+			end = file_size - 1
+		}
+	}
+	
+	if start > end || start >= file_size {
+		return none
+	}
+	
+	return RangeRequest{
+		start: start
+		end: end
+		total: file_size
+	}
+}
+
+// 流式文件传输方法
+pub fn (mut c Context) file_stream(file_path string) http.Response {
+	return c.file_stream_with_options(file_path, FileOptions{})
+}
+
+// 带选项的流式文件传输方法
+pub fn (mut c Context) file_stream_with_options(file_path string, options FileOptions) http.Response {
+	// 安全检查
+	if !is_safe_file_path(file_path) {
+		c.status(403)
+		return c.text('Forbidden')
+	}
+	
+	// 检查文件是否存在
+	if !os.exists(file_path) {
+		c.status(404)
+		return c.text('File Not Found')
+	}
+	
+	// 检查是否为目录
+	if os.is_dir(file_path) {
+		c.status(400)
+		return c.text('Cannot serve directory')
+	}
+	
+	// 获取文件信息
+	file_info := os.stat(file_path) or {
+		c.status(500)
+		return c.text('Internal Server Error')
+	}
+	
+	file_size := u64(file_info.size)
+	
+	// 检查是否处理 Range 请求
+	mut range_req := ?RangeRequest(none)
+	if options.enable_range {
+		if range_header := c.req.header.get_custom('Range') {
+			range_req = parse_range_header(range_header, file_size)
+		}
+	}
+	
+	// 设置基本响应头
+	if options.content_type != '' {
+		c.headers['Content-Type'] = options.content_type
+	} else {
+		content_type := get_file_content_type(file_path)
+		c.headers['Content-Type'] = content_type
+	}
+	
+	// 设置缓存相关头部
+	if options.last_modified {
+		last_modified := format_http_date(file_info.mtime)
+		c.headers['Last-Modified'] = last_modified
+	}
+	
+	if options.max_age > 0 {
+		c.headers['Cache-Control'] = 'public, max-age=${options.max_age}'
+	} else if options.no_cache {
+		c.headers['Cache-Control'] = 'no-cache'
+	}
+	
+	// 设置自定义头部
+	for key, value in options.headers {
+		c.headers[key] = value
+	}
+	
+	// 处理 Range 请求
+	if range_request := range_req {
+		return c.handle_range_request(file_path, range_request, options)
+	}
+	
+	// 设置完整文件响应头
+	c.headers['Content-Length'] = file_size.str()
+	c.headers['Accept-Ranges'] = 'bytes'
+	
+	// 如果文件较小，直接读取到内存
+	if file_size <= options.stream_threshold {
+		file_content := os.read_file(file_path) or {
+			c.status(500)
+			return c.text('Internal Server Error')
+		}
+		
+		// 设置ETag（仅对小文件）
+		if options.etag {
+			etag := generate_file_etag(file_content, file_info.mtime)
+			c.headers['ETag'] = etag
+			
+			// 检查If-None-Match
+			if_none_match := c.req.header.get_custom('If-None-Match') or { '' }
+			if if_none_match == etag {
+				c.status(304)
+				return c.build_headers_response('')
+			}
+		}
+		
+		c.status(200)
+		return c.build_headers_response(file_content)
+	}
+	
+	// 大文件使用流式传输
+	c.status(200)
+	return c.stream_large_file(file_path, file_size, options)
+}
+
+// 处理 Range 请求
+fn (mut c Context) handle_range_request(file_path string, range_req RangeRequest, options FileOptions) http.Response {
+	content_length := range_req.end - range_req.start + 1
+	
+	// 设置 Range 响应头
+	c.status(206) // Partial Content
+	c.headers['Content-Length'] = content_length.str()
+	c.headers['Content-Range'] = 'bytes ${range_req.start}-${range_req.end}/${range_req.total}'
+	c.headers['Accept-Ranges'] = 'bytes'
+	
+	// 读取指定范围的文件内容
+	mut file := os.open(file_path) or {
+		c.status(500)
+		return c.text('Internal Server Error')
+	}
+	defer { file.close() }
+	
+	// 跳转到起始位置
+	file.seek(int(range_req.start), .start) or {
+		c.status(500)
+		return c.text('Internal Server Error')
+	}
+	
+	// 读取范围内容
+	mut buffer := []u8{len: int(content_length)}
+	bytes_read := file.read(mut buffer) or {
+		c.status(500)
+		return c.text('Internal Server Error')
+	}
+	
+	if bytes_read != int(content_length) {
+		c.status(500)
+		return c.text('Internal Server Error')
+	}
+	
+	return c.build_headers_response(buffer.bytestr())
+}
+
+// 流式传输大文件
+fn (mut c Context) stream_large_file(file_path string, file_size u64, options FileOptions) http.Response {
+	// 注意：V语言的http.Response不直接支持流式传输
+	// 这里我们实现一个分块读取的方法，但仍需要将整个文件读入内存
+	// 对于真正的流式传输，需要在框架层面支持
+	
+	mut file := os.open(file_path) or {
+		c.status(500)
+		return c.text('Internal Server Error')
+	}
+	defer { file.close() }
+	
+	mut content := strings.new_builder(int(file_size))
+	mut buffer := []u8{len: options.buffer_size}
+	
+	for {
+		bytes_read := file.read(mut buffer) or { break }
+		if bytes_read == 0 {
+			break
+		}
+		content.write(buffer[..bytes_read]) or { break }
+		if bytes_read < options.buffer_size {
+			break
+		}
+	}
+	
+	return c.build_headers_response(content.str())
+}
+
+// 构建带头部的响应
+fn (mut c Context) build_headers_response(body string) http.Response {
+	mut headers := http.new_header()
+	for key, value in c.headers {
+		headers.add_custom(key, value) or { continue }
+	}
+	return http.Response{
+		status_code: c.status_code
+		header: headers
+		body: body
+	}
+}
+
+// 智能文件服务方法（自动选择流式或内存传输）
+pub fn (mut c Context) file_smart(file_path string) http.Response {
+	return c.file_smart_with_options(file_path, FileOptions{})
+}
+
+// 带选项的智能文件服务方法
+pub fn (mut c Context) file_smart_with_options(file_path string, options FileOptions) http.Response {
+	// 获取文件大小
+	if !os.exists(file_path) {
+		c.status(404)
+		return c.text('File Not Found')
+	}
+	
+	file_info := os.stat(file_path) or {
+		c.status(500)
+		return c.text('Internal Server Error')
+	}
+	
+	file_size := u64(file_info.size)
+	
+	// 根据文件大小选择传输方式
+	if file_size > options.stream_threshold {
+		return c.file_stream_with_options(file_path, options)
+	} else {
+		return c.file_with_options(file_path, options)
+	}
+}
+
