@@ -55,8 +55,15 @@ pub fn serve_static(options StaticOptions) fn (mut Context, fn (mut Context) htt
 		println('  Root: ${options.root}')
 		
 		// 安全检查：防止路径遍历攻击
-		if !is_safe_path(file_path) {
-			println('  [DEBUG] Path traversal attack detected')
+		validation_options := PathValidationOptions{
+			allow_absolute_paths: false
+			allow_hidden_files: options.dotfiles
+			check_file_extension: true
+			allowed_base_paths: [options.root]
+		}
+		
+		safe_file_path := validate_file_path(file_path, validation_options) or {
+			println('  [DEBUG] Path validation failed: $err')
 			c.status(403)
 			return c.text('Forbidden')
 		}
@@ -69,7 +76,7 @@ pub fn serve_static(options StaticOptions) fn (mut Context, fn (mut Context) htt
 		}
 		
 		// 构建完整的文件路径
-		full_path := os.join_path(options.root, file_path)
+		full_path := os.join_path(options.root, safe_file_path)
 		println('  Full path: ${full_path}')
 		
 		// 检查文件是否存在
@@ -115,7 +122,7 @@ fn serve_file(mut c Context, file_path string, options StaticOptions) http.Respo
 	c.status(200)
 	
 	// 设置Content-Type
-	content_type := get_content_type(file_path)
+	content_type := get_safe_content_type(file_path)
 	c.headers['Content-Type'] = content_type
 	
 	// 设置Content-Length
@@ -171,24 +178,6 @@ fn serve_file(mut c Context, file_path string, options StaticOptions) http.Respo
 		header: headers
 		body: file_content
 	}
-}
-
-// 安全检查：防止路径遍历攻击
-fn is_safe_path(path string) bool {
-	// 检查是否包含 .. 或绝对路径
-	if path.contains('..') || path.starts_with('/') || path.starts_with('\\') {
-		return false
-	}
-	
-	// 检查是否包含危险字符
-	dangerous_chars := ['<', '>', ':', '"', '|', '?', '*']
-	for dangerous_char in dangerous_chars {
-		if path.contains(dangerous_char) {
-			return false
-		}
-	}
-	
-	return true
 }
 
 // 根据文件扩展名获取Content-Type

@@ -105,11 +105,12 @@ pub fn (mut cache ContextLRUCache) put(key string, value ContextRouteMatch) {
 
 // 移动到链表头部
 fn (mut cache ContextLRUCache) move_to_front(mut node ContextLRUCacheNode) {
+	// 如果已经是头节点，直接返回
 	if unsafe { voidptr(node) == voidptr(cache.head) } {
 		return
 	}
 	
-	// 从当前位置移除
+	// 安全地从当前位置移除
 	if node.prev != unsafe { nil } {
 		mut prev := node.prev
 		prev.next = node.next
@@ -119,11 +120,12 @@ fn (mut cache ContextLRUCache) move_to_front(mut node ContextLRUCacheNode) {
 		next.prev = node.prev
 	}
 	
-	// 如果是尾节点
+	// 如果是尾节点，更新尾指针
 	if unsafe { voidptr(node) == voidptr(cache.tail) } {
 		cache.tail = node.prev
 	}
 	
+	// 添加到头部
 	cache.add_to_front(mut node)
 }
 
@@ -161,10 +163,10 @@ fn (mut cache ContextLRUCache) remove_node(mut node ContextLRUCacheNode) {
 		return // 避免移除已被清理的节点
 	}
 	
-	// 从哈希表中移除
+	// 先从哈希表中移除，避免悬空指针
 	cache.cache.delete(node.key)
 	
-	// 更新链表指针
+	// 安全更新链表指针
 	if node.prev != unsafe { nil } {
 		mut prev := node.prev
 		prev.next = node.next
@@ -181,12 +183,15 @@ fn (mut cache ContextLRUCache) remove_node(mut node ContextLRUCacheNode) {
 		cache.tail = node.prev
 	}
 	
-	// 清理节点引用，防止内存泄漏
+	// 彻底清理节点引用，防止内存泄漏
 	node.prev = unsafe { nil }
 	node.next = unsafe { nil }
 	node.key = '' // 清空key作为已清理的标记
 	
-	cache.size--
+	// 更新大小计数
+	if cache.size > 0 {
+		cache.size--
+	}
 }
 
 // 获取缓存统计信息
@@ -233,9 +238,9 @@ pub fn (mut cache ContextLRUCache) set_cleanup_interval(interval_seconds i64) {
 
 // 检查缓存是否健康
 pub fn (mut cache ContextLRUCache) is_healthy() bool {
-	// 检查链表一致性
+	// 检查基本状态
 	if cache.size == 0 {
-		return cache.head == unsafe { nil } && cache.tail == unsafe { nil }
+		return cache.head == unsafe { nil } && cache.tail == unsafe { nil } && cache.cache.len == 0
 	}
 	
 	// 检查头尾指针
@@ -244,7 +249,22 @@ pub fn (mut cache ContextLRUCache) is_healthy() bool {
 	}
 	
 	// 检查哈希表和链表大小一致
-	return cache.cache.len == cache.size
+	if cache.cache.len != cache.size {
+		return false
+	}
+	
+	// 检查链表完整性
+	mut count := 0
+	mut current := cache.head
+	for current != unsafe { nil } {
+		count++
+		if count > cache.size {
+			return false // 检测到循环引用
+		}
+		current = current.next
+	}
+	
+	return count == cache.size
 }
 
 // 检查节点是否过期
@@ -295,14 +315,17 @@ pub fn (mut cache ContextLRUCache) force_cleanup_expired() {
 
 // 安全清理所有缓存（内存安全版本）
 pub fn (mut cache ContextLRUCache) clear() {
-	// 逐个清理节点引用
+	// 逐个安全清理节点引用
 	mut current := cache.head
 	for current != unsafe { nil } {
 		mut next := current.next
-		// 清理当前节点的引用
+		
+		// 彻底清理当前节点的所有引用
 		current.prev = unsafe { nil }
 		current.next = unsafe { nil }
 		current.key = ''
+		// 清空 value 中的数据（如果需要的话）
+		
 		current = next
 	}
 	

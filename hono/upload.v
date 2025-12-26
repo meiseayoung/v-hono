@@ -17,6 +17,7 @@ pub:
 	cleanup_delay  int = 3600  // 1小时后清理临时文件
 	clear_chunks_on_complete bool // 上传完成后是否清空分片，默认不清空
 	db_path        string = './uploads/files.db'  // 数据库文件路径
+	merge_buffer_size int = 8192  // 文件合并时的缓冲区大小（8KB）
 }
 
 // 分片信息
@@ -74,65 +75,73 @@ pub fn new_chunk_upload_manager(config ChunkUploadConfig) ChunkUploadManager {
 pub fn (mut manager ChunkUploadManager) handle_chunk_upload(mut ctx Context) http.Response {
 	// 解析 multipart 表单数据
 	form_data := hono.parse_multipart_form(ctx.req) or {
-		ctx.status(400)
-		return ctx.json('{"error": "Invalid form data", "message": "$err"}')
+		return ctx.bad_request('Invalid form data: ${err}')
 	}
 	
-	// 获取必要参数
-	file_hash := form_data.get('file_hash') or {
-		ctx.status(400)
-		return ctx.json('{"error": "Missing file_hash"}')
+	// 获取并验证必要参数
+	file_hash_raw := form_data.get('file_hash') or {
+		return ctx.missing_parameter('file_hash')
+	}
+	
+	// 验证文件哈希
+	file_hash := validate_file_hash(file_hash_raw) or {
+		return ctx.invalid_parameter('file_hash', err.msg())
 	}
 	
 	chunk_index_str := form_data.get('chunk_index') or {
-		ctx.status(400)
-		return ctx.json('{"error": "Missing chunk_index"}')
+		return ctx.missing_parameter('chunk_index')
 	}
 	
-	filename := form_data.get('filename') or {
-		ctx.status(400)
-		return ctx.json('{"error": "Missing filename"}')
+	filename_raw := form_data.get('filename') or {
+		return ctx.missing_parameter('filename')
+	}
+	
+	// 验证文件名
+	filename := validate_filename(filename_raw) or {
+		return ctx.invalid_parameter('filename', err.msg())
 	}
 	
 	file_size_str := form_data.get('file_size') or {
-		ctx.status(400)
-		return ctx.json('{"error": "Missing file_size"}')
+		return ctx.missing_parameter('file_size')
 	}
 	
-	// 解析数值
-	chunk_index := chunk_index_str.int()
-	file_size := file_size_str.int()
-	
 	// 验证文件大小
-	if file_size > manager.config.max_file_size {
-		ctx.status(413)
-		return ctx.json('{"error": "File too large", "max_size": "${manager.config.max_file_size}"}')
+	file_size := validate_file_size(file_size_str, manager.config.max_file_size) or {
+		return ctx.invalid_parameter('file_size', err.msg())
 	}
 	
 	// 获取前端传递的分片大小参数
 	chunk_size_str := form_data.get('chunk_size') or {
-		ctx.status(400)
-		return ctx.json('{"error": "Missing chunk_size"}')
+		return ctx.missing_parameter('chunk_size')
 	}
-	chunk_size := chunk_size_str.int()
 	
-	// 验证分片大小（使用配置中的最大分片大小）
-	if chunk_size > manager.config.max_chunk_size {
-		ctx.status(413)
-		return ctx.json('{"error": "Chunk size too large", "max_chunk_size": "${manager.config.max_chunk_size}"}')
+	// 验证分片大小
+	chunk_size := validate_file_size(chunk_size_str, manager.config.max_chunk_size) or {
+		return ctx.invalid_parameter('chunk_size', err.msg())
+	}
+	
+	// 验证分片索引
+	chunk_index := validate_chunk_index(chunk_index_str, 0) or { // 0 表示不限制最大值
+		return ctx.invalid_parameter('chunk_index', err.msg())
 	}
 	
 	// 获取文件数据
 	file_data := form_data.get_file('chunk') or {
-		ctx.status(400)
-		return ctx.json('{"error": "Missing chunk file"}')
+		return ctx.missing_parameter('chunk')
+	}
+	
+	// 验证分片数据大小
+	if file_data.len > chunk_size {
+		return ctx.validation_error('Chunk data size exceeds declared chunk_size', {
+			'actual_size': file_data.len.str()
+			'declared_size': chunk_size.str()
+		})
 	}
 	
 	// 创建按文件hash和分片大小分组的目录
-	chunk_dir := os.join_path(manager.config.temp_dir, file_hash.trim_space(), chunk_size.str())
+	chunk_dir := os.join_path(manager.config.temp_dir, file_hash, chunk_size.str())
 	os.mkdir_all(chunk_dir) or {
-		ctx.status(500)
-		return ctx.json('{"error": "Failed to create chunk directory"}')
+		return ctx.file_operation_error('create_directory', chunk_dir, err.msg())
 	}
 	
 	// 保存分片文件到hash/chunksize子目录
@@ -143,8 +152,7 @@ pub fn (mut manager ChunkUploadManager) handle_chunk_upload(mut ctx Context) htt
 	
 	os.write_file(chunk_path, file_data) or {
 		println('[DEBUG] Failed to save chunk: $err')
-		ctx.status(500)
-		return ctx.json('{"error": "Failed to save chunk"}')
+		return ctx.file_operation_error('save_chunk', chunk_path, err.msg())
 	}
 	
 	// 更新上传状态
@@ -155,7 +163,7 @@ pub fn (mut manager ChunkUploadManager) handle_chunk_upload(mut ctx Context) htt
 	// 判断是否所有分片都已上传，自动合并
 	// 使用记录文件来避免遍历分片文件计算总大小
 	mut all_chunk_uploaded := false
-	merge_chunk_dir := os.join_path(manager.config.temp_dir, file_hash.trim_space(), chunk_size.str())
+	merge_chunk_dir := os.join_path(manager.config.temp_dir, file_hash, chunk_size.str())
 	
 	if os.exists(merge_chunk_dir) {
 		// 更新已上传分片的总大小记录
@@ -181,7 +189,7 @@ pub fn (mut manager ChunkUploadManager) handle_chunk_upload(mut ctx Context) htt
 		
 		// 获取文件扩展名
 		file_ext := get_file_extension(filename)
-		final_filename := '${file_hash.trim_space()}${file_ext}'
+		final_filename := '${file_hash}${file_ext}'
 		final_path := os.join_path(manager.config.upload_dir, final_filename)
 		
 		// 检查最终文件是否已经存在，避免重复合并
@@ -194,8 +202,7 @@ pub fn (mut manager ChunkUploadManager) handle_chunk_upload(mut ctx Context) htt
 			
 			manager.merge_chunks(file_hash, actual_total_chunks, final_path, chunk_size) or {
 				println('[DEBUG] Merge failed: $err')
-				ctx.status(500)
-				return ctx.json('{"error": "Failed to merge chunks", "message": "$err"}')
+				return ctx.file_operation_error('merge_chunks', final_path, err.msg())
 			}
 		}
 		
@@ -224,8 +231,7 @@ pub fn (mut manager ChunkUploadManager) handle_chunk_upload(mut ctx Context) htt
 pub fn (mut manager ChunkUploadManager) handle_chunk_merge(mut ctx Context) http.Response {
 	// 解析请求体
 	merge_request := hono.parse_merge_request(ctx.body) or {
-		ctx.status(400)
-		return ctx.json('{"error": "Invalid request body", "message": "$err"}')
+		return ctx.bad_request('Invalid request body: ${err}')
 	}
 	
 	file_hash := merge_request.file_hash
@@ -234,14 +240,15 @@ pub fn (mut manager ChunkUploadManager) handle_chunk_merge(mut ctx Context) http
 	
 	// 检查上传状态
 	upload_status := manager.uploads[file_hash] or {
-		ctx.status(404)
-		return ctx.json('{"error": "Upload not found"}')
+		return ctx.resource_not_found('upload', file_hash)
 	}
 	
 	// 验证所有分片是否上传完成
 	if upload_status.uploaded_chunks.len != total_chunks {
-		ctx.status(400)
-		return ctx.json('{"error": "Not all chunks uploaded", "uploaded": ${upload_status.uploaded_chunks.len}, "total": $total_chunks}')
+		return ctx.validation_error('Not all chunks uploaded', {
+			'uploaded': upload_status.uploaded_chunks.len.str()
+			'total': total_chunks.str()
+		})
 	}
 	
 	// 合并文件
@@ -252,8 +259,7 @@ pub fn (mut manager ChunkUploadManager) handle_chunk_merge(mut ctx Context) http
 	// 从上传状态中获取分片大小
 	chunk_size := upload_status.chunk_size
 	manager.merge_chunks(file_hash, total_chunks, final_path, chunk_size) or {
-		ctx.status(500)
-		return ctx.json('{"error": "Failed to merge chunks", "message": "$err"}')
+		return ctx.file_operation_error('merge_chunks', final_path, err.msg())
 	}
 	
 	// 在数据库中记录文件信息
@@ -278,13 +284,11 @@ pub fn (mut manager ChunkUploadManager) handle_chunk_merge(mut ctx Context) http
 // 获取上传状态
 pub fn (manager ChunkUploadManager) get_upload_status(mut ctx Context) http.Response {
 	file_hash := ctx.query['file_hash'] or {
-		ctx.status(400)
-		return ctx.json('{"error": "Missing file_hash parameter"}')
+		return ctx.missing_parameter('file_hash')
 	}
 	
 	upload_status := manager.uploads[file_hash] or {
-		ctx.status(404)
-		return ctx.json('{"error": "Upload not found"}')
+		return ctx.resource_not_found('upload', file_hash)
 	}
 	
 	return ctx.json(json.encode(upload_status))
@@ -316,7 +320,7 @@ pub fn (mut manager ChunkUploadManager) update_upload_status(file_hash string, f
 	manager.uploads[file_hash].updated_at = now
 }
 
-// 合并分片
+// 合并分片 - 流式版本，减少内存占用
 fn (mut manager ChunkUploadManager) merge_chunks(file_hash string, total_chunks int, final_path string, chunk_size int) ! {
 	println('[DEBUG] Merge chunks called with:')
 	println('[DEBUG]   file_hash: $file_hash')
@@ -336,11 +340,6 @@ fn (mut manager ChunkUploadManager) merge_chunks(file_hash string, total_chunks 
 	}
 	
 	println('[DEBUG] Creating final file: $final_path')
-	println('[DEBUG] Final path length: ${final_path.len}')
-	println('[DEBUG] Final path bytes: ${final_path.bytes()}')
-	println('[DEBUG] Final path exists: ${os.exists(final_path)}')
-	println('[DEBUG] Final path is file: ${os.is_file(final_path)}')
-	println('[DEBUG] Final path is dir: ${os.is_dir(final_path)}')
 	
 	// 如果文件已存在，直接返回成功
 	if os.exists(final_path) {
@@ -348,12 +347,8 @@ fn (mut manager ChunkUploadManager) merge_chunks(file_hash string, total_chunks 
 		return
 	}
 	
-	// Try to create the file with explicit path cleaning
+	// 清理路径并创建最终文件
 	clean_path := final_path.trim_space()
-	println('[DEBUG] Clean path: "$clean_path"')
-	println('[DEBUG] Clean path length: ${clean_path.len}')
-	
-	// Try to get absolute path
 	abs_path := os.abs_path(clean_path)
 	println('[DEBUG] Absolute path: "$abs_path"')
 	
@@ -363,23 +358,38 @@ fn (mut manager ChunkUploadManager) merge_chunks(file_hash string, total_chunks 
 	}
 	defer { final_file.close() }
 	
+	// 流式合并分片，使用可配置的缓冲区大小
+	buffer_size := manager.config.merge_buffer_size
+	mut buffer := []u8{len: buffer_size}
+	
 	for i in 0 .. total_chunks {
 		chunk_path := os.join_path(manager.config.temp_dir, file_hash.trim_space(), chunk_size.str(), 'chunk_${i}.part')
-		println('[DEBUG] Reading chunk: $chunk_path')
+		println('[DEBUG] Processing chunk: $chunk_path')
 		
 		if !os.exists(chunk_path) {
 			return error('Chunk file not found: $chunk_path')
 		}
 		
-		chunk_data := os.read_file(chunk_path) or {
-			return error('Failed to read chunk $i: $err')
+		// 流式读取和写入分片文件
+		mut chunk_file := os.open(chunk_path) or {
+			return error('Failed to open chunk $i: $err')
 		}
 		
-		final_file.write(chunk_data.bytes()) or {
-			return error('Failed to write chunk $i: $err')
+		mut bytes_copied := 0
+		for {
+			bytes_read := chunk_file.read(mut buffer) or { break }
+			if bytes_read == 0 { break }
+			
+			final_file.write(buffer[..bytes_read]) or {
+				chunk_file.close()
+				return error('Failed to write chunk $i data: $err')
+			}
+			
+			bytes_copied += bytes_read
 		}
 		
-		println('[DEBUG] Chunk $i merged successfully, size: ${chunk_data.len} bytes')
+		chunk_file.close()
+		println('[DEBUG] Chunk $i merged successfully, size: ${bytes_copied} bytes')
 	}
 	
 	println('[DEBUG] All chunks merged successfully to: $final_path')

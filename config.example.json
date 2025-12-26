@@ -1,0 +1,54 @@
+{
+  "server": {
+    "host": "127.0.0.1",
+    "port": 8080,
+    "read_timeout": 30,
+    "write_timeout": 30,
+    "max_request_size": 10485760,
+    "enable_cors": true,
+    "enable_gzip": true
+  },
+  "static": {
+    "enabled": true,
+    "root_dir": "./static",
+    "index_files": ["index.html", "index.htm"],
+    "cache_max_age": 3600,
+    "enable_directory_listing": false,
+    "allowed_extensions": [".html", ".css", ".js", ".png", ".jpg", ".jpeg", ".gif", ".svg", ".ico", ".txt", ".pdf"]
+  },
+  "upload": {
+    "enabled": true,
+    "upload_dir": "./uploads",
+    "max_file_size": 104857600,
+    "max_chunk_size": 5242880,
+    "merge_buffer_size": 8192,
+    "allowed_types": [".txt", ".pdf", ".doc", ".docx", ".jpg", ".jpeg", ".png", ".gif"],
+    "cleanup_timeout": 3600
+  },
+  "cache": {
+    "enabled": true,
+    "max_size": 1000,
+    "default_ttl": 300,
+    "cleanup_interval": 60
+  },
+  "security": {
+    "enable_path_validation": true,
+    "enable_file_type_check": true,
+    "enable_size_limits": true,
+    "max_path_length": 255,
+    "blocked_extensions": [".exe", ".bat", ".cmd", ".sh", ".php", ".asp", ".jsp"],
+    "enable_xss_protection": true,
+    "enable_csrf_protection": false
+  },
+  "log": {
+    "enabled": true,
+    "level": "info",
+    "output": "console",
+    "file_path": "./logs/app.log",
+    "max_file_size": 10485760,
+    "max_backup_files": 5,
+    "enable_request_log": true
+  },
+  "debug": false,
+  "env": "development"
+}

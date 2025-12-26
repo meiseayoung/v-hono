@@ -9,6 +9,14 @@ enum RouteType {
 	wildcard
 }
 
+// 编译后的正则表达式缓存
+pub struct CompiledRegex {
+pub mut:
+	regex       regex.RE
+	param_names []string
+	compiled    bool
+}
+
 // Context 路由节点
 struct ContextRouteNode {
 mut:
@@ -31,10 +39,11 @@ pub:
 
 // Context 混合路由器
 pub struct ContextHybridRouter {
-mut:
+pub mut:
 	static_routes  map[string]IHandler
 	dynamic_routes []IHandler
 	cache          ContextLRUCache
+	regex_cache    map[string]CompiledRegex  // 新增：正则表达式缓存
 }
 
 // ContextHybridRouter 构造函数
@@ -43,6 +52,7 @@ pub fn ContextHybridRouter.new() ContextHybridRouter {
 		static_routes: map[string]IHandler{}
 		dynamic_routes: []IHandler{}
 		cache: ContextLRUCache.new(1000)
+		regex_cache: map[string]CompiledRegex{}
 	}
 }
 
@@ -56,56 +66,82 @@ fn is_dynamic_path(path string) bool {
 	return path.contains(':') || path.contains('*') || path.contains('?') || path.contains('+')
 }
 
-// Context 版本的正则匹配函数
-fn (mut router ContextHybridRouter) match_path_with_regex(real_path string, reg_path string) (bool, regex.RE, []string) {
+// Context 版本的正则匹配函数（优化版，使用缓存）
+pub fn (mut router ContextHybridRouter) match_path_with_regex(real_path string, reg_path string) (bool, regex.RE, []string) {
+	// 先检查缓存
+	if cached := router.regex_cache[reg_path] {
+		if cached.compiled {
+			return cached.regex.matches_string(real_path), cached.regex, cached.param_names
+		}
+	}
+	
+	// 如果缓存中没有，编译并缓存
+	mut compiled_regex := CompiledRegex{}
+	mut replaced_path := reg_path
+	mut param_names := []string{}
+	
 	// 处理多个星号 **
 	if reg_path.contains('**') {
 		// 将 ** 替换为 .*
-		replaced_path := reg_path.replace('**', '.*')
+		replaced_path = reg_path.replace('**', '.*')
 		mut reg := regex.regex_opt(replaced_path) or { return false, regex.RE{}, []string{} }
+		compiled_regex = CompiledRegex{
+			regex: reg
+			param_names: []string{}
+			compiled: true
+		}
+		router.regex_cache[reg_path] = compiled_regex
 		return reg.matches_string(real_path), reg, []string{}
 	}
 	
 	// 处理单个星号 *
 	if reg_path.contains('*') {
 		// 将 * 替换为 [^/]*
-		replaced_path := reg_path.replace('*', '[^/]*')
+		replaced_path = reg_path.replace('*', '[^/]*')
 		mut reg := regex.regex_opt(replaced_path) or { return false, regex.RE{}, []string{} }
+		compiled_regex = CompiledRegex{
+			regex: reg
+			param_names: []string{}
+			compiled: true
+		}
+		router.regex_cache[reg_path] = compiled_regex
 		return reg.matches_string(real_path), reg, []string{}
 	}
 	
 	// 处理参数 :param
 	if reg_path.contains(':') {
-		mut replaced_path := reg_path
-		mut param_names := []string{}
+		// 预先提取参数名（避免在匹配时重复提取）
+		mut param_reg := regex.regex_opt(r':[a-zA-Z_][a-zA-Z0-9_]*') or { return false, regex.RE{}, []string{} }
+		all_params := param_reg.find_all_str(reg_path)
+		for param in all_params {
+			param_names << param[1..]  // 去掉冒号
+		}
 		
-		// 转义特殊字符
-		replaced_path = replaced_path.replace('?', r'\?')
-		replaced_path = replaced_path.replace('+', r'\+')
-		replaced_path = replaced_path.replace('.', r'\.')
-		replaced_path = replaced_path.replace('(', r'\(')
-		replaced_path = replaced_path.replace(')', r'\)')
-		replaced_path = replaced_path.replace('[', r'\[')
-		replaced_path = replaced_path.replace(']', r'\]')
-		replaced_path = replaced_path.replace('{', r'\{')
-		replaced_path = replaced_path.replace('}', r'\}')
-		replaced_path = replaced_path.replace('^', r'\^')
-		replaced_path = replaced_path.replace('$', r'\$')
-		replaced_path = replaced_path.replace('|', r'\|')
+		// 批量转义特殊字符（减少多次replace调用）
+		special_chars := ['?', '+', '.', '(', ')', '[', ']', '{', '}', '^', '$', '|']
+		for ch in special_chars {
+			replaced_path = replaced_path.replace(ch, '\\${ch}')
+		}
 		
-		// 提取参数名并替换为命名捕获组
-		mut pamam_reg := regex.regex_opt(r':[a-zA-Z_][a-zA-Z0-9_]*') or { return false, regex.RE{}, []string{} }
-		replaced_path = pamam_reg.replace_by_fn(replaced_path, fn [mut param_names] (re regex.RE, in_txt string, start int, end int) string {
+		// 替换参数为命名捕获组
+		replaced_path = param_reg.replace_by_fn(replaced_path, fn (re regex.RE, in_txt string, start int, end int) string {
 			param_name := in_txt[start+1..end]
-			param_names << param_name
-			return '(?P<' + param_name + '>[^/]+)'
+			return '(?P<${param_name}>[^/]+)'
 		})
 		
-		// 添加结束锚点
-		replaced_path = '^' + replaced_path + '$'
+		// 添加锚点
+		replaced_path = '^${replaced_path}$'
 		
 		// 编译正则表达式
 		mut reg := regex.regex_opt(replaced_path) or { return false, regex.RE{}, []string{} }
+		
+		// 缓存编译结果
+		compiled_regex = CompiledRegex{
+			regex: reg
+			param_names: param_names
+			compiled: true
+		}
+		router.regex_cache[reg_path] = compiled_regex
 		
 		return reg.matches_string(real_path), reg, param_names
 	}
@@ -120,11 +156,51 @@ pub fn (mut router ContextHybridRouter) add_route(method string, handler IHandle
 		router.static_routes['${method}:${full_path}'] = handler
 	} else {
 		router.dynamic_routes << handler
+		// 按路由复杂度排序，简单路由优先匹配
+		router.sort_dynamic_routes()
 	}
 }
 
+// 按路由复杂度排序动态路由（简单路由优先）
+fn (mut router ContextHybridRouter) sort_dynamic_routes() {
+	router.dynamic_routes.sort_with_compare(fn (a &IHandler, b &IHandler) int {
+		// 计算路由复杂度分数（分数越低越简单，优先匹配）
+		score_a := calculate_route_complexity(a.path)
+		score_b := calculate_route_complexity(b.path)
+		
+		if score_a < score_b {
+			return -1
+		} else if score_a > score_b {
+			return 1
+		}
+		return 0
+	})
+}
+
+// 计算路由复杂度分数
+fn calculate_route_complexity(path string) int {
+	mut score := 0
+	
+	// 参数数量（每个参数+10分）
+	score += path.count(':') * 10
+	
+	// 通配符（每个通配符+20分）
+	score += path.count('*') * 20
+	
+	// 路径段数量（每个段+1分）
+	score += path.split('/').len
+	
+	// 特殊字符（每个+5分）
+	special_chars := ['?', '+', '.', '(', ')', '[', ']', '{', '}', '^', '$', '|']
+	for ch in special_chars {
+		score += path.count(ch) * 5
+	}
+	
+	return score
+}
+
 // Context 版本的静态路径匹配
-fn (router ContextHybridRouter) match_static_route(method string, path string) ?IHandler {
+pub fn (router ContextHybridRouter) match_static_route(method string, path string) ?IHandler {
 	key := '${method}:${path}'
 	if key in router.static_routes {
 		return router.static_routes[key]
@@ -141,15 +217,12 @@ fn (mut router ContextHybridRouter) match_dynamic_route(method string, path stri
 	}
 	
 	for handler in router.dynamic_routes {
-		match_result, replaced_path_reg, _ := router.match_path_with_regex(path, handler.path)
+		match_result, replaced_path_reg, param_names := router.match_path_with_regex(path, handler.path)
 		if match_result {
 			mut param_map := map[string]string{}
 			
-			// 从原始路由路径中提取参数名
-			mut pamam_reg := regex.regex_opt(r':\w+') or { panic(err) }
-			all_params := pamam_reg.find_all_str(handler.path)
-			for param in all_params {
-				param_name := param[1..]
+			// 直接使用已编译的正则表达式和缓存的参数名
+			for param_name in param_names {
 				group := replaced_path_reg.get_group_by_name(path, param_name)
 				param_map[param_name] = group
 			}
@@ -207,6 +280,51 @@ pub fn (router ContextHybridRouter) get_cache_stats() (int, int) {
 // 清理缓存
 pub fn (mut router ContextHybridRouter) clear_cache() {
 	router.cache.clear()
+}
+
+// 获取正则表达式缓存统计信息
+pub fn (router ContextHybridRouter) get_regex_cache_stats() (int, int) {
+	mut compiled_count := 0
+	for _, cached_regex in router.regex_cache {
+		if cached_regex.compiled {
+			compiled_count++
+		}
+	}
+	return router.regex_cache.len, compiled_count
+}
+
+// 清理正则表达式缓存
+pub fn (mut router ContextHybridRouter) clear_regex_cache() {
+	router.regex_cache.clear()
+}
+
+// 预热正则表达式缓存
+pub fn (mut router ContextHybridRouter) warmup_regex_cache() {
+	println('[INFO] Warming up regex cache...')
+	mut warmed_count := 0
+	
+	for handler in router.dynamic_routes {
+		if handler.path.contains(':') || handler.path.contains('*') {
+			// 预编译动态路由的正则表达式
+			router.match_path_with_regex('/dummy/path', handler.path)
+			warmed_count++
+		}
+	}
+	
+	total_cached, compiled_cached := router.get_regex_cache_stats()
+	println('[INFO] Regex cache warmup completed: ${warmed_count} patterns warmed, ${compiled_cached}/${total_cached} compiled')
+}
+
+// 路由性能分析
+pub fn (router ContextHybridRouter) analyze_router_performance() {
+	cache_size, cache_hits := router.get_cache_stats()
+	regex_total, regex_compiled := router.get_regex_cache_stats()
+	
+	println('[PERFORMANCE] Router Analysis:')
+	println('  Static Routes: ${router.static_routes.len}')
+	println('  Dynamic Routes: ${router.dynamic_routes.len}')
+	println('  Route Cache: ${cache_hits}/${cache_size} hits')
+	println('  Regex Cache: ${regex_compiled}/${regex_total} compiled')
 }
 
  

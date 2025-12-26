@@ -2,6 +2,7 @@ import hono
 import net.http
 import os
 import time
+import strings
 
 fn main() {
 	println('=== 文件流式传输功能测试 ===')
@@ -30,27 +31,29 @@ fn create_test_files() {
 	println('  ✅ 创建小文件: test_small.txt (${small_content.len} bytes)')
 	
 	// 创建中等文件 (约100KB)
-	mut medium_content := ''
+	mut medium_content := strings.new_builder(100 * 1024)
 	for i in 0 .. 1000 {
-		medium_content += 'This is line ${i:04d} with some content to make it longer and test streaming.\n'
+		medium_content.write_string('This is line ${i:04d} with some content to make it longer and test streaming.\n')
 	}
-	os.write_file('test_medium.txt', medium_content) or { 
+	medium_str := medium_content.str()
+	os.write_file('test_medium.txt', medium_str) or { 
 		println('  ❌ 创建中等文件失败: $err')
 		return
 	}
-	println('  ✅ 创建中等文件: test_medium.txt (${medium_content.len} bytes)')
+	println('  ✅ 创建中等文件: test_medium.txt (${medium_str.len} bytes)')
 	
 	// 创建大文件 (约1MB)
-	mut large_content := ''
+	mut large_content := strings.new_builder(1024 * 1024)
 	base_line := 'This is a long line of text that will be repeated many times to create a large file for testing streaming functionality. '
 	for i in 0 .. 10000 {
-		large_content += '${i:05d}: $base_line\n'
+		large_content.write_string('${i:05d}: $base_line\n')
 	}
-	os.write_file('test_large.txt', large_content) or { 
+	large_str := large_content.str()
+	os.write_file('test_large.txt', large_str) or { 
 		println('  ❌ 创建大文件失败: $err')
 		return
 	}
-	println('  ✅ 创建大文件: test_large.txt (${large_content.len} bytes)')
+	println('  ✅ 创建大文件: test_large.txt (${large_str.len} bytes)')
 }
 
 fn test_file_streaming() {

@@ -145,16 +145,16 @@ fn (tr ContextTrieRouter) collect_routes(node &ContextTrieNode, current_path str
 	
 	// 收集静态子节点
 	for segment, child in node.children {
-		tr.collect_routes(child, current_path + '/' + segment, mut routes)
+		tr.collect_routes(child, '${current_path}/${segment}', mut routes)
 	}
 	
 	// 收集参数子节点
 	if node.param_child != unsafe { nil } {
-		tr.collect_routes(node.param_child, current_path + '/:' + node.param_child.param_name, mut routes)
+		tr.collect_routes(node.param_child, '${current_path}/:${node.param_child.param_name}', mut routes)
 	}
 	
 	// 收集通配符子节点
 	if node.wildcard_child != unsafe { nil } {
-		tr.collect_routes(node.wildcard_child, current_path + '/*', mut routes)
+		tr.collect_routes(node.wildcard_child, '${current_path}/*', mut routes)
 	}
 } 

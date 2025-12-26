@@ -85,32 +85,38 @@ pub fn (mut c Context) file(file_path string) http.Response {
 
 // file_with_options method - serve a file with custom options
 pub fn (mut c Context) file_with_options(file_path string, options FileOptions) http.Response {
-	// 安全检查：防止路径遍历攻击
-	if !is_safe_file_path(file_path) {
+	// 增强的安全检查
+	validation_options := PathValidationOptions{
+		allow_absolute_paths: false
+		allow_hidden_files: false
+		check_file_extension: true
+	}
+	
+	safe_file_path := validate_file_path(file_path, validation_options) or {
 		c.status(403)
-		return c.text('Forbidden')
+		return c.text('Forbidden: $err')
 	}
 	
 	// 检查文件是否存在
-	if !os.exists(file_path) {
+	if !os.exists(safe_file_path) {
 		c.status(404)
 		return c.text('File Not Found')
 	}
 	
 	// 检查是否为目录
-	if os.is_dir(file_path) {
+	if os.is_dir(safe_file_path) {
 		c.status(400)
 		return c.text('Cannot serve directory')
 	}
 	
 	// 读取文件内容
-	file_content := os.read_file(file_path) or {
+	file_content := os.read_file(safe_file_path) or {
 		c.status(500)
 		return c.text('Internal Server Error')
 	}
 	
 	// 获取文件信息
-	file_info := os.stat(file_path) or {
+	file_info := os.stat(safe_file_path) or {
 		c.status(500)
 		return c.text('Internal Server Error')
 	}
@@ -126,7 +132,7 @@ pub fn (mut c Context) file_with_options(file_path string, options FileOptions) 
 	if options.content_type != '' {
 		c.headers['Content-Type'] = options.content_type
 	} else {
-		content_type := get_file_content_type(file_path)
+		content_type := get_safe_content_type(safe_file_path)
 		c.headers['Content-Type'] = content_type
 	}
 	
@@ -200,24 +206,6 @@ pub:
 	buffer_size      int = 8192              // 流式传输缓冲区大小（8KB）
 	enable_range     bool = true             // 是否支持Range请求
 	compress         bool                    // 是否启用压缩（对流式传输）
-}
-
-// 安全检查：防止路径遍历攻击
-fn is_safe_file_path(path string) bool {
-	// 检查是否包含 .. 或绝对路径
-	if path.contains('..') || path.starts_with('/') || path.starts_with('\\') {
-		return false
-	}
-	
-	// 检查是否包含危险字符
-	dangerous_chars := ['<', '>', ':', '"', '|', '?', '*']
-	for dangerous_char in dangerous_chars {
-		if path.contains(dangerous_char) {
-			return false
-		}
-	}
-	
-	return true
 }
 
 // 根据文件扩展名获取Content-Type
