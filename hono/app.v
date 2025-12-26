@@ -2,6 +2,7 @@ module hono
 
 import net.urllib
 import net.http
+import time
 
 // Context 路由器
 struct ContextRouter {
@@ -265,6 +266,9 @@ fn (mut s ServerHanler) exec_context_middlewares(idx int, mut ctx Context, handl
 pub fn (mut app Hono) listen(port string) {
 	app.server.addr = port
 	app.server.handler = server_hanler_new(app)
+	// 增加超时配置以支持更好的 Keep-Alive
+	app.server.read_timeout = 60 * time.second
+	app.server.write_timeout = 60 * time.second
 	app.server.listen_and_serve()
 }
 

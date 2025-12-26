@@ -42,6 +42,7 @@ pub fn Context.new(req http.Request, params map[string]string, query map[string]
 pub fn (mut c Context) json(data string) http.Response {
 	mut headers := http.new_header()
 	headers.add_custom('Content-Type', 'application/json; charset=utf-8') or { }
+	headers.add_custom('Connection', 'keep-alive') or { }
 	for key, value in c.headers {
 		headers.add_custom(key, value) or { continue }
 	}
@@ -55,6 +56,7 @@ pub fn (mut c Context) json(data string) http.Response {
 pub fn (mut c Context) text(data string) http.Response {
 	mut headers := http.new_header()
 	headers.add_custom('Content-Type', 'text/plain; charset=utf-8') or { }
+	headers.add_custom('Connection', 'keep-alive') or { }
 	for key, value in c.headers {
 		headers.add_custom(key, value) or { continue }
 	}
@@ -68,6 +70,7 @@ pub fn (mut c Context) text(data string) http.Response {
 pub fn (mut c Context) html(data string) http.Response {
 	mut headers := http.new_header()
 	headers.add_custom('Content-Type', 'text/html; charset=utf-8') or { }
+	headers.add_custom('Connection', 'keep-alive') or { }
 	for key, value in c.headers {
 		headers.add_custom(key, value) or { continue }
 	}
@@ -498,6 +501,7 @@ fn (mut c Context) stream_large_file(file_path string, file_size u64, options Fi
 // 构建带头部的响应
 fn (mut c Context) build_headers_response(body string) http.Response {
 	mut headers := http.new_header()
+	headers.add_custom('Connection', 'keep-alive') or { }
 	for key, value in c.headers {
 		headers.add_custom(key, value) or { continue }
 	}

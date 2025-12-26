@@ -55,17 +55,25 @@ pub fn serve_static(options StaticOptions) fn (mut Context, fn (mut Context) htt
 		println('  Root: ${options.root}')
 		
 		// 安全检查：防止路径遍历攻击
+		// 注意：不检查文件扩展名，因为这可能是 API 路由而不是静态文件
+		// 如果文件不存在，会在后面调用 next(mut c) 继续处理
 		validation_options := PathValidationOptions{
 			allow_absolute_paths: false
 			allow_hidden_files: options.dotfiles
-			check_file_extension: true
-			allowed_base_paths: [options.root]
+			check_file_extension: false  // 不检查扩展名，让文件存在性检查来决定
+			allowed_base_paths: []
 		}
 		
 		safe_file_path := validate_file_path(file_path, validation_options) or {
 			println('  [DEBUG] Path validation failed: $err')
-			c.status(403)
-			return c.text('Forbidden')
+			// 路径验证失败（如包含 .. 等危险模式），传递给下一个处理器
+			// 只有真正的安全问题才返回 403
+			if err.msg().contains('Dangerous') {
+				c.status(403)
+				return c.text('Forbidden')
+			}
+			// 其他情况（如无扩展名）传递给下一个处理器
+			return next(mut c)
 		}
 		
 		// 检查是否允许访问点文件
@@ -145,6 +153,7 @@ fn serve_file(mut c Context, file_path string, options StaticOptions) http.Respo
 			c.status(304)
 			// 构建响应头
 			mut headers := http.new_header()
+			headers.add_custom('Connection', 'keep-alive') or { }
 			for key, value in c.headers {
 				headers.add_custom(key, value) or { continue }
 			}
@@ -167,6 +176,9 @@ fn serve_file(mut c Context, file_path string, options StaticOptions) http.Respo
 	for key, value in options.headers {
 		c.headers[key] = value
 	}
+	
+	// 设置 Keep-Alive
+	c.headers['Connection'] = 'keep-alive'
 	
 	// 返回文件内容
 	mut headers := http.new_header()
