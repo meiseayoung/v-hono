@@ -35,19 +35,28 @@ fn main() {
 	
 	println('2. 容量溢出测试')
 	
+	// 注意：上面的 get('key1') 会把 key1 移到头部（最近使用）
+	// 所以 LRU 顺序变为: key1(头) -> key3 -> key2(尾)
 	// 添加更多项，触发LRU移除
-	cache.put('key4', test_route_match)
-	cache.put('key5', test_route_match)
-	cache.put('key6', test_route_match) // 应该移除key1
+	cache.put('key4', test_route_match)  // size=4
+	cache.put('key5', test_route_match)  // size=5 (达到容量)
+	cache.put('key6', test_route_match)  // 移除 key2 (最久未使用)
 	
 	size2, _ := cache.get_stats()
 	println('   添加到容量上限后: ${size2}/${capacity}')
 	
-	// key1应该被移除
-	if _ := cache.get('key1') {
-		println('   ❌ key1仍然存在（应该被移除）')
+	// key2 应该被移除（因为 key1 在 get 后被移到了头部）
+	if _ := cache.get('key2') {
+		println('   ❌ key2仍然存在（应该被移除）')
 	} else {
-		println('   ✅ key1正确被移除')
+		println('   ✅ key2正确被移除（LRU淘汰）')
+	}
+	
+	// key1 应该仍然存在（因为它是最近访问的）
+	if _ := cache.get('key1') {
+		println('   ✅ key1仍然存在（最近访问过）')
+	} else {
+		println('   ❌ key1被错误移除')
 	}
 	
 	println('3. 健康检查测试')

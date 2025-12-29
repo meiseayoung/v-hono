@@ -19,11 +19,19 @@ mut:
 	}
 }
 
+// NotFound 处理器类型
+pub type NotFoundHandler = fn (mut c Context) http.Response
+
+// Error 处理器类型 - 使用简单的错误信息和状态码
+pub type ErrorHandler = fn (error_msg string, status_code int, mut c Context) http.Response
+
 pub struct Hono {
 mut:
 	server http.Server = http.Server{}
 	routes map[string] Hono = {}
 	base_path string
+	not_found_handler ?NotFoundHandler  // 自定义 404 处理器
+	error_handler ?ErrorHandler         // 自定义错误处理器
 pub mut:
 	context_router ContextRouter = ContextRouter{}
 	context_hybrid_router ContextHybridRouter
@@ -31,6 +39,7 @@ pub mut:
 	fast_router FastRouter  // 新增：快速路由器
 	use_fast_router bool = true  // 新增：是否使用快速路由器
 	context_middlewares []ContextMiddleware
+	route_middlewares map[string][]ContextMiddleware  // 路由前缀对应的中间件
 }
 
 // Context 中间件类型
@@ -162,9 +171,30 @@ pub fn (mut app Hono) options(path string, handler fn (mut Context) http.Respons
 	app.context_trie_router.add_route('OPTIONS', path, h)
 }
 
+// all() 方法 - 为所有 HTTP 方法注册同一个处理器
+pub fn (mut app Hono) all(path string, handler fn (mut Context) http.Response) {
+	app.get(path, handler)
+	app.post(path, handler)
+	app.put(path, handler)
+	app.delete(path, handler)
+	app.patch(path, handler)
+	app.head(path, handler)
+	app.options(path, handler)
+}
+
 // Context 中间件
 pub fn (mut app Hono) use(mw ContextMiddleware) {
 	app.context_middlewares << mw
+}
+
+// notFound() - 自定义 404 处理器
+pub fn (mut app Hono) not_found(handler NotFoundHandler) {
+	app.not_found_handler = handler
+}
+
+// onError() - 自定义错误处理器
+pub fn (mut app Hono) on_error(handler ErrorHandler) {
+	app.error_handler = handler
 }
 
 struct ServerHanler {
@@ -179,10 +209,6 @@ fn server_hanler_new(app Hono) ServerHanler {
 }
 
 fn (mut s ServerHanler) handle(req http.Request) http.Response {
-	mut res := http.Response{
-		status_code: 404
-		body:        'Not Found'
-	}
 	url := urllib.parse(req.url) or {
 		urllib.URL{
 			path: '/'
@@ -208,8 +234,10 @@ fn (mut s ServerHanler) handle(req http.Request) http.Response {
 			body := req.data
 			// 构造 Context
 			mut ctx := Context.new(req, param_map, query_map, body)
+			// 获取该路径对应的中间件
+			middlewares := s.get_middlewares_for_path(url.path)
 			// 洋葱模型递归执行中间件
-			return s.exec_context_middlewares(0, mut ctx, fn [route_match] (mut c Context) http.Response {
+			return s.exec_context_middlewares_with_list(0, middlewares, mut ctx, fn [route_match] (mut c Context) http.Response {
 				return route_match.handler.handle(mut c)
 			})
 		}
@@ -222,8 +250,10 @@ fn (mut s ServerHanler) handle(req http.Request) http.Response {
 			body := req.data
 			// 构造 Context
 			mut ctx := Context.new(req, param_map, query_map, body)
+			// 获取该路径对应的中间件
+			middlewares := s.get_middlewares_for_path(url.path)
 			// 洋葱模型递归执行中间件
-			return s.exec_context_middlewares(0, mut ctx, fn [route_match] (mut c Context) http.Response {
+			return s.exec_context_middlewares_with_list(0, middlewares, mut ctx, fn [route_match] (mut c Context) http.Response {
 				return route_match.handler.handle(mut c)
 			})
 		}
@@ -235,20 +265,61 @@ fn (mut s ServerHanler) handle(req http.Request) http.Response {
 			body := req.data
 			// 构造 Context
 			mut ctx := Context.new(req, param_map, query_map, body)
+			// 获取该路径对应的中间件
+			middlewares := s.get_middlewares_for_path(url.path)
 			// 洋葱模型递归执行中间件
-			return s.exec_context_middlewares(0, mut ctx, fn [route_match] (mut c Context) http.Response {
+			return s.exec_context_middlewares_with_list(0, middlewares, mut ctx, fn [route_match] (mut c Context) http.Response {
 				return route_match.handler.handle(mut c)
 			})
 		}
 	}
 	
-	// 如果没有匹配的路由，也要执行中间件
+	// 如果没有匹配的路由，使用 notFound 处理器
 	param_map := map[string]string{}
 	body := req.data
 	mut ctx := Context.new(req, param_map, query_map, body)
-	return s.exec_context_middlewares(0, mut ctx, fn [res] (mut c Context) http.Response {
-		return res
+	
+	// 使用自定义 notFound 处理器或默认 404 响应
+	if handler := s.app.not_found_handler {
+		return s.exec_context_middlewares(0, mut ctx, handler)
+	}
+	
+	// 默认 404 响应
+	return s.exec_context_middlewares(0, mut ctx, fn (mut c Context) http.Response {
+		c.status(404)
+		return c.text('Not Found')
 	})
+}
+
+// 获取路径对应的所有中间件（全局 + 路由前缀匹配的）
+fn (s ServerHanler) get_middlewares_for_path(path string) []ContextMiddleware {
+	mut middlewares := s.app.context_middlewares.clone()
+	
+	// 按前缀长度排序，确保更具体的前缀后执行
+	mut prefixes := s.app.route_middlewares.keys()
+	prefixes.sort(a.len < b.len)
+	
+	for prefix in prefixes {
+		if path.starts_with(prefix) || prefix == '/' {
+			if mws := s.app.route_middlewares[prefix] {
+				middlewares << mws
+			}
+		}
+	}
+	
+	return middlewares
+}
+
+// 使用指定中间件列表执行
+fn (mut s ServerHanler) exec_context_middlewares_with_list(idx int, middlewares []ContextMiddleware, mut ctx Context, handler fn (mut Context) http.Response) http.Response {
+	if idx < middlewares.len {
+		mw := middlewares[idx]
+		return mw(mut ctx, fn [mut s, idx, middlewares, handler] (mut c Context) http.Response {
+			return s.exec_context_middlewares_with_list(idx + 1, middlewares, mut c, handler)
+		})
+	} else {
+		return handler(mut ctx)
+	}
 }
 
 // Context 版本的中间件执行函数
@@ -273,31 +344,97 @@ pub fn (mut app Hono) listen(port string) {
 }
 
 pub fn (mut app Hono) route(prefix string, mut subapp Hono) {
-	// 简化路由合并，直接添加所有处理器
+	// 保存子应用引用
 	app.routes[prefix] = subapp
 	
-	// 合并 Context 路由
-	for handler in subapp.context_router.handlers.get {
-		app.context_router.handlers.get << handler
+	// 合并子应用的中间件到路由前缀
+	if subapp.context_middlewares.len > 0 {
+		if prefix in app.route_middlewares {
+			app.route_middlewares[prefix] << subapp.context_middlewares
+		} else {
+			app.route_middlewares[prefix] = subapp.context_middlewares.clone()
+		}
 	}
-	for handler in subapp.context_router.handlers.post {
-		app.context_router.handlers.post << handler
+	
+	// 继承子应用的 notFound 和 onError 处理器（如果主应用没有设置）
+	if app.not_found_handler == none && subapp.not_found_handler != none {
+		// 子应用的 notFound 只对该前缀生效，这里不继承到主应用
+		// 如果需要，可以在子应用路由匹配失败时单独处理
 	}
-	for handler in subapp.context_router.handlers.put {
-		app.context_router.handlers.put << handler
+	
+	// 合并子应用的路由到主应用的所有路由器
+	// 使用辅助函数来处理每种 HTTP 方法
+	app.merge_routes_for_method('GET', prefix, subapp.context_router.handlers.get)
+	app.merge_routes_for_method('POST', prefix, subapp.context_router.handlers.post)
+	app.merge_routes_for_method('PUT', prefix, subapp.context_router.handlers.put)
+	app.merge_routes_for_method('DELETE', prefix, subapp.context_router.handlers.delete)
+	app.merge_routes_for_method('PATCH', prefix, subapp.context_router.handlers.patch)
+	app.merge_routes_for_method('HEAD', prefix, subapp.context_router.handlers.head)
+	app.merge_routes_for_method('OPTIONS', prefix, subapp.context_router.handlers.options)
+}
+
+// 辅助函数：合并指定 HTTP 方法的路由
+fn (mut app Hono) merge_routes_for_method(method string, prefix string, handlers []IHandler) {
+	for handler in handlers {
+		// 创建带前缀的新路径
+		mut new_path := ''
+		if handler.path == '/' || handler.path == '' {
+			// 如果子路由是根路径，直接使用前缀
+			new_path = prefix
+		} else if handler.path.starts_with('/') {
+			new_path = '${prefix}${handler.path}'
+		} else {
+			new_path = '${prefix}/${handler.path}'
+		}
+		
+		// 创建带新路径的包装 handler（实现 IHandler 接口）
+		new_handler := PrefixedHandler{
+			path: new_path
+			inner: handler
+		}
+		
+		// 为 trie_router 创建 ContextHandler
+		trie_handler := ContextHandler{
+			path: new_path
+			handler: fn [handler] (mut c Context) http.Response {
+				return handler.handle(mut c)
+			}
+		}
+		
+		// 添加到对应的 handlers 列表
+		match method {
+			'GET' { app.context_router.handlers.get << new_handler }
+			'POST' { app.context_router.handlers.post << new_handler }
+			'PUT' { app.context_router.handlers.put << new_handler }
+			'DELETE' { app.context_router.handlers.delete << new_handler }
+			'PATCH' { app.context_router.handlers.patch << new_handler }
+			'HEAD' { app.context_router.handlers.head << new_handler }
+			'OPTIONS' { app.context_router.handlers.options << new_handler }
+			else {}
+		}
+		
+		// 添加到快速路由器
+		if app.use_fast_router {
+			app.fast_router.add_route(method, new_handler, '') or {
+				app.context_hybrid_router.add_route(method, new_handler, '')
+			}
+		} else {
+			app.context_hybrid_router.add_route(method, new_handler, '')
+		}
+		app.context_trie_router.add_route(method, new_path, trie_handler)
 	}
-	for handler in subapp.context_router.handlers.delete {
-		app.context_router.handlers.delete << handler
-	}
-	for handler in subapp.context_router.handlers.patch {
-		app.context_router.handlers.patch << handler
-	}
-	for handler in subapp.context_router.handlers.head {
-		app.context_router.handlers.head << handler
-	}
-	for handler in subapp.context_router.handlers.options {
-		app.context_router.handlers.options << handler
-	}
+}
+
+// 带前缀的 Handler 包装器，实现 IHandler 接口
+pub struct PrefixedHandler {
+pub:
+	path  string
+	inner IHandler
+}
+
+// 实现 IHandler 接口的 handle 方法
+pub fn (h PrefixedHandler) handle(mut c Context) http.Response {
+	return h.inner.handle(mut c)
 }
 
 pub fn (mut app Hono) set_base_path(base_path string) {
@@ -345,10 +482,13 @@ pub fn Hono.new() Hono {
 		server: http.Server{}
 		routes: map[string]Hono{}
 		base_path: ''
+		not_found_handler: none
+		error_handler: none
 		context_router: ContextRouter{}
 		context_hybrid_router: ContextHybridRouter.new()
 		context_trie_router: ContextTrieRouter.new()
 		fast_router: FastRouter.new()
 		use_fast_router: true
+		route_middlewares: map[string][]ContextMiddleware{}
 	}
 }

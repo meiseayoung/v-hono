@@ -17,13 +17,13 @@ fn main() {
 	// 测试4: 批量路由添加性能
 	test_batch_route_addition()
 	
-	println('✅ 所有路由优化测试完成')
+	println('\n✅ 所有路由优化测试完成')
 }
 
 fn test_regex_compilation_cache() {
 	println('\n📊 测试正则表达式编译缓存效果...')
 	
-	mut optimized_router := hono.new_optimized_router()
+	mut fast_router := hono.FastRouter.new()
 	
 	// 添加一些动态路由
 	test_routes := [
@@ -36,19 +36,22 @@ fn test_regex_compilation_cache() {
 	
 	// 测试路由编译时间
 	start_time := time.now()
-	for i, route in test_routes {
+	for route in test_routes {
 		handler := hono.ContextHandler{
 			path: route
 			handler: fn (mut c hono.Context) http.Response {
 				return c.text('test')
 			}
 		}
-		optimized_router.add_route('GET', handler, '')
+		fast_router.add_route('GET', handler, '') or {
+			println('  ⚠️ 添加路由失败: ${route}')
+		}
 	}
 	compilation_time := time.since(start_time)
 	
+	static_count, dynamic_count, cache_count := fast_router.get_stats()
 	println('  路由编译时间: ${compilation_time}')
-	println('  编译缓存大小: ${optimized_router.compiled_cache.len}')
+	println('  静态路由: ${static_count}, 动态路由: ${dynamic_count}, 缓存: ${cache_count}')
 	
 	// 测试匹配性能（使用缓存的编译结果）
 	test_paths := [
@@ -61,9 +64,9 @@ fn test_regex_compilation_cache() {
 	
 	start_time2 := time.now()
 	mut matches := 0
-	for _ in 0 .. 1000 {  // 减少测试次数
+	for _ in 0 .. 1000 {
 		for path in test_paths {
-			if handler, params := optimized_router.match_route('GET', path) {
+			if _ := fast_router.match_route('GET', path) {
 				matches++
 			}
 		}
@@ -80,14 +83,14 @@ fn test_regex_compilation_cache() {
 fn test_route_matching_performance() {
 	println('\n📊 测试路由匹配性能对比...')
 	
-	// 创建优化路由器
-	mut optimized_router := hono.new_optimized_router()
+	// 创建 FastRouter
+	mut fast_router := hono.FastRouter.new()
 	
-	// 创建传统路由器（用于对比）
-	mut traditional_router := hono.new_context_hybrid_router()
+	// 创建 HybridRouter（用于对比）
+	mut hybrid_router := hono.ContextHybridRouter.new()
 	
 	// 添加相同的路由到两个路由器
-	test_routes := []string{}
+	mut test_routes := []string{}
 	for i in 0 .. 100 {
 		route := '/api/v${i}/users/:id/posts/:post_id'
 		test_routes << route
@@ -99,8 +102,8 @@ fn test_route_matching_performance() {
 			}
 		}
 		
-		optimized_router.add_route('GET', handler, '')
-		traditional_router.add_route('GET', handler, '')
+		fast_router.add_route('GET', handler, '') or {}
+		hybrid_router.add_route('GET', handler, '')
 	}
 	
 	// 测试路径
@@ -110,52 +113,52 @@ fn test_route_matching_performance() {
 		'/api/v99/users/111/posts/222'
 	]
 	
-	// 测试优化路由器性能
+	// 测试 FastRouter 性能
 	start_time1 := time.now()
-	mut optimized_matches := 0
+	mut fast_matches := 0
 	for _ in 0 .. 50000 {
 		for path in test_paths {
-			if handler, params := optimized_router.match_route('GET', path) {
-				optimized_matches++
+			if _ := fast_router.match_route('GET', path) {
+				fast_matches++
 			}
 		}
 	}
-	optimized_time := time.since(start_time1)
+	fast_time := time.since(start_time1)
 	
-	// 测试传统路由器性能
+	// 测试 HybridRouter 性能
 	start_time2 := time.now()
-	mut traditional_matches := 0
+	mut hybrid_matches := 0
 	for _ in 0 .. 50000 {
 		for path in test_paths {
-			if handler, params := traditional_router.match_route('GET', path) {
-				traditional_matches++
+			if _ := hybrid_router.match_route('GET', path) {
+				hybrid_matches++
 			}
 		}
 	}
-	traditional_time := time.since(start_time2)
+	hybrid_time := time.since(start_time2)
 	
-	println('  优化路由器 (50000次 × ${test_paths.len}路径): ${optimized_time}')
-	println('  传统路由器 (50000次 × ${test_paths.len}路径): ${traditional_time}')
+	println('  FastRouter (50000次 × ${test_paths.len}路径): ${fast_time}')
+	println('  HybridRouter (50000次 × ${test_paths.len}路径): ${hybrid_time}')
 	
-	if traditional_time.milliseconds() > 0 {
-		improvement := f64(traditional_time.milliseconds()) / f64(optimized_time.milliseconds())
-		println('  性能提升: ${improvement:.2f}x')
+	if hybrid_time.milliseconds() > 0 && fast_time.milliseconds() > 0 {
+		improvement := f64(hybrid_time.milliseconds()) / f64(fast_time.milliseconds())
+		println('  性能对比: ${improvement:.2f}x')
 	}
 	
-	println('  优化路由器匹配: ${optimized_matches}')
-	println('  传统路由器匹配: ${traditional_matches}')
+	println('  FastRouter 匹配: ${fast_matches}')
+	println('  HybridRouter 匹配: ${hybrid_matches}')
 	
-	// 显示缓存统计
-	optimized_router.analyze_performance()
+	// 显示性能分析
+	fast_router.analyze_performance()
 }
 
 fn test_cache_warmup_effect() {
 	println('\n📊 测试缓存预热效果...')
 	
-	mut router := hono.new_optimized_router()
+	mut router := hono.FastRouter.new()
 	
 	// 添加路由
-	for i in 0 .. 50 {
+	for _ in 0 .. 50 {
 		route := '/api/users/:id/items/:item_id'
 		handler := hono.ContextHandler{
 			path: route
@@ -163,7 +166,7 @@ fn test_cache_warmup_effect() {
 				return c.text('test')
 			}
 		}
-		router.add_route('GET', handler, '')
+		router.add_route('GET', handler, '') or {}
 	}
 	
 	common_paths := [
@@ -172,23 +175,26 @@ fn test_cache_warmup_effect() {
 		'/api/users/111/items/222'
 	]
 	
-	// 测试预热前的性能
+	// 清除缓存，测试预热前的性能
+	router.clear_cache()
+	
 	start_time1 := time.now()
 	for _ in 0 .. 10000 {
 		for path in common_paths {
-			router.match_route('GET', path) or { continue }
+			_ := router.match_route('GET', path) or { continue }
 		}
 	}
 	before_warmup := time.since(start_time1)
 	
-	// 预热缓存
-	router.warmup_cache(common_paths)
+	// 清除缓存并预热
+	router.clear_cache()
+	router.warmup_cache(common_paths, 'GET')
 	
 	// 测试预热后的性能
 	start_time2 := time.now()
 	for _ in 0 .. 10000 {
 		for path in common_paths {
-			router.match_route('GET', path) or { continue }
+			_ := router.match_route('GET', path) or { continue }
 		}
 	}
 	after_warmup := time.since(start_time2)
@@ -196,9 +202,9 @@ fn test_cache_warmup_effect() {
 	println('  预热前 (10000次 × ${common_paths.len}路径): ${before_warmup}')
 	println('  预热后 (10000次 × ${common_paths.len}路径): ${after_warmup}')
 	
-	if before_warmup.milliseconds() > 0 {
+	if before_warmup.milliseconds() > 0 && after_warmup.milliseconds() > 0 {
 		improvement := f64(before_warmup.milliseconds()) / f64(after_warmup.milliseconds())
-		println('  预热效果: ${improvement:.2f}x 提升')
+		println('  预热效果: ${improvement:.2f}x')
 	}
 	
 	router.analyze_performance()
@@ -207,10 +213,10 @@ fn test_cache_warmup_effect() {
 fn test_batch_route_addition() {
 	println('\n📊 测试批量路由添加性能...')
 	
-	mut router := hono.new_optimized_router()
+	mut router := hono.FastRouter.new()
 	
-	// 准备大量路由
-	mut routes := []hono.RouteDefinition{}
+	// 测试批量添加性能
+	start_time := time.now()
 	for i in 0 .. 1000 {
 		handler := hono.ContextHandler{
 			path: '/api/v1/resource${i}/:id'
@@ -218,24 +224,18 @@ fn test_batch_route_addition() {
 				return c.text('test')
 			}
 		}
-		routes << hono.RouteDefinition{
-			method: 'GET'
-			handler: handler
-			base_path: ''
-		}
+		router.add_route('GET', handler, '') or {}
 	}
-	
-	// 测试批量添加性能
-	start_time := time.now()
-	router.add_routes_batch(routes)
 	batch_time := time.since(start_time)
+	
+	static_count, dynamic_count, cache_count := router.get_stats()
 	
 	println('  批量添加1000个路由: ${batch_time}')
 	println('  平均每个路由: ${batch_time.microseconds() / 1000}μs')
-	println('  编译缓存大小: ${router.compiled_cache.len}')
+	println('  路由统计: 静态=${static_count}, 动态=${dynamic_count}, 缓存=${cache_count}')
 	
 	// 测试健康检查
-	if router.health_check() {
+	if router.is_healthy() {
 		println('  ✅ 路由器健康检查通过')
 	} else {
 		println('  ❌ 路由器健康检查失败')
