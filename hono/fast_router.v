@@ -24,18 +24,20 @@ pub mut:
 // 快速路由器（增强版本）
 pub struct FastRouter {
 pub mut:
-	static_routes      map[string]IHandler
-	precompiled_routes []PrecompiledRoute
-	lru_cache         ContextLRUCache      // 使用 LRU 缓存替代简单 map
-	regex_cache       map[string]FastCompiledRegex  // 正则表达式缓存
-	cache_enabled     bool = true
-	sort_enabled      bool = true          // 是否启用路由排序
+	static_routes        map[string]IHandler
+	static_route_results map[string]ContextRouteMatch  // 预分配的静态路由结果
+	precompiled_routes   []PrecompiledRoute
+	lru_cache            ContextLRUCache      // 使用 LRU 缓存替代简单 map
+	regex_cache          map[string]FastCompiledRegex  // 正则表达式缓存
+	cache_enabled        bool = true
+	sort_enabled         bool = true          // 是否启用路由排序
 }
 
 // 创建快速路由器
 pub fn FastRouter.new() FastRouter {
 	return FastRouter{
 		static_routes: map[string]IHandler{}
+		static_route_results: map[string]ContextRouteMatch{}
 		precompiled_routes: []PrecompiledRoute{}
 		lru_cache: ContextLRUCache.new(1000)  // 默认1000条缓存
 		regex_cache: map[string]FastCompiledRegex{}
@@ -46,6 +48,7 @@ pub fn FastRouter.new() FastRouter {
 pub fn FastRouter.new_with_cache_size(cache_size int) FastRouter {
 	return FastRouter{
 		static_routes: map[string]IHandler{}
+		static_route_results: map[string]ContextRouteMatch{}
 		precompiled_routes: []PrecompiledRoute{}
 		lru_cache: ContextLRUCache.new(cache_size)
 		regex_cache: map[string]FastCompiledRegex{}
@@ -56,9 +59,17 @@ pub fn FastRouter.new_with_cache_size(cache_size int) FastRouter {
 pub fn (mut router FastRouter) add_route(method string, handler IHandler, base_path string) ! {
 	full_path := handler.path
 	
-	// 静态路由直接存储
+	// 静态路由直接存储，并预分配匹配结果
 	if !full_path.contains(':') && !full_path.contains('*') {
-		router.static_routes['${method}:${full_path}'] = handler
+		key := '${method}:${full_path}'
+		router.static_routes[key] = handler
+		// 预分配匹配结果，避免每次查询时创建新对象
+		router.static_route_results[key] = ContextRouteMatch{
+			handler: handler
+			params: map[string]string{}
+			path: full_path
+			base_path: ''
+		}
 		return
 	}
 	
@@ -160,31 +171,20 @@ fn (router FastRouter) precompile_route(method string, handler IHandler) !Precom
 	}
 }
 
-// 快速路由匹配
+// 快速路由匹配（优化版：静态路由跳过缓存 + 预分配结果）
 pub fn (mut router FastRouter) match_route(method string, path string) ?ContextRouteMatch {
-	// 1. 检查 LRU 缓存
+	// 1. 静态路由直接返回预分配的结果（零分配）
+	static_key := '${method}:${path}'
+	if result := router.static_route_results[static_key] {
+		return result
+	}
+	
+	// 2. 动态路由先检查 LRU 缓存（避免重复正则匹配）
 	if router.cache_enabled {
 		cache_key := '${method}:${path}'
 		if cached := router.lru_cache.get(cache_key) {
 			return cached
 		}
-	}
-	
-	// 2. 静态路由匹配
-	static_key := '${method}:${path}'
-	if static_handler := router.static_routes[static_key] {
-		result := ContextRouteMatch{
-			handler: static_handler
-			params: map[string]string{}
-			path: path
-			base_path: ''
-		}
-		
-		if router.cache_enabled {
-			router.lru_cache.put(static_key, result)
-		}
-		
-		return result
 	}
 	
 	// 3. 预编译动态路由匹配（已按复杂度排序）
@@ -208,7 +208,7 @@ pub fn (mut router FastRouter) match_route(method string, path string) ?ContextR
 				base_path: ''
 			}
 			
-			// 缓存结果
+			// 只缓存动态路由结果
 			if router.cache_enabled {
 				cache_key := '${method}:${path}'
 				router.lru_cache.put(cache_key, result)
