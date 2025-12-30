@@ -31,7 +31,7 @@ fn main() {
 		return c.html('<h1>Welcome to v-hono!</h1><p>API available at /api</p>')
 	})
 
-	println('Server starting on http://localhost:3000')
+	println('Server starting on http://127.0.0.1:3000')
 	println('Routes:')
 	println('  GET  /           - Welcome page')
 	println('  GET  /api/users  - List users')

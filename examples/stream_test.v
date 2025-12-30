@@ -21,7 +21,7 @@ fn main() {
 	
 	// 等待服务器启动
 	time.sleep(2 * time.second)
-	println('服务器已启动在 http://localhost:8081')
+	println('服务器已启动在 http://127.0.0.1:8081')
 	
 	// 执行测试
 	run_tests()
@@ -124,7 +124,7 @@ fn test_small_file_performance() {
 	// 传统方式
 	start := time.now()
 	for i in 0 .. 100 {
-		_ = os.execute('curl -s http://localhost:8081/traditional/test_small.txt > nul')
+		_ = os.execute('curl -s http://127.0.0.1:8081/traditional/test_small.txt > nul')
 	}
 	traditional_time := time.now() - start
 	println('传统方式 100次请求: $traditional_time')
@@ -132,7 +132,7 @@ fn test_small_file_performance() {
 	// 流式方式
 	start2 := time.now()
 	for i in 0 .. 100 {
-		_ = os.execute('curl -s http://localhost:8081/stream/test_small.txt > nul')
+		_ = os.execute('curl -s http://127.0.0.1:8081/stream/test_small.txt > nul')
 	}
 	stream_time := time.now() - start2
 	println('流式方式 100次请求: $stream_time')
@@ -140,7 +140,7 @@ fn test_small_file_performance() {
 	// 智能方式
 	start3 := time.now()
 	for i in 0 .. 100 {
-		_ = os.execute('curl -s http://localhost:8081/smart/test_small.txt > nul')
+		_ = os.execute('curl -s http://127.0.0.1:8081/smart/test_small.txt > nul')
 	}
 	smart_time := time.now() - start3
 	println('智能方式 100次请求: $smart_time')
@@ -152,7 +152,7 @@ fn test_medium_file_performance() {
 	// 传统方式
 	start := time.now()
 	for i in 0 .. 10 {
-		_ = os.execute('curl -s http://localhost:8081/traditional/test_medium.txt > nul')
+		_ = os.execute('curl -s http://127.0.0.1:8081/traditional/test_medium.txt > nul')
 	}
 	traditional_time := time.now() - start
 	println('传统方式 10次请求: $traditional_time')
@@ -160,7 +160,7 @@ fn test_medium_file_performance() {
 	// 流式方式
 	start2 := time.now()
 	for i in 0 .. 10 {
-		_ = os.execute('curl -s http://localhost:8081/stream/test_medium.txt > nul')
+		_ = os.execute('curl -s http://127.0.0.1:8081/stream/test_medium.txt > nul')
 	}
 	stream_time := time.now() - start2
 	println('流式方式 10次请求: $stream_time')
@@ -172,7 +172,7 @@ fn test_large_file_performance() {
 	// 只测试流式方式，避免内存问题
 	start := time.now()
 	for i in 0 .. 5 {
-		result := os.execute('curl -s http://localhost:8081/stream/test_large.txt > nul')
+		result := os.execute('curl -s http://127.0.0.1:8081/stream/test_large.txt > nul')
 		if result.exit_code != 0 {
 			println('  请求 $i 失败')
 		}
@@ -183,7 +183,7 @@ fn test_large_file_performance() {
 	// 智能方式（应该自动选择流式传输）
 	start2 := time.now()
 	for i in 0 .. 5 {
-		result := os.execute('curl -s http://localhost:8081/smart/test_large.txt > nul')
+		result := os.execute('curl -s http://127.0.0.1:8081/smart/test_large.txt > nul')
 		if result.exit_code != 0 {
 			println('  智能方式请求 $i 失败')
 		}
@@ -196,14 +196,14 @@ fn test_range_requests() {
 	println('\n--- Range请求测试 ---')
 	
 	// 测试部分内容请求
-	result1 := os.execute('curl -s -H "Range: bytes=0-99" http://localhost:8081/range/test_medium.txt')
+	result1 := os.execute('curl -s -H "Range: bytes=0-99" http://127.0.0.1:8081/range/test_medium.txt')
 	if result1.exit_code == 0 {
 		println('✅ Range请求 0-99: 成功')
 	} else {
 		println('❌ Range请求 0-99: 失败')
 	}
 	
-	result2 := os.execute('curl -s -H "Range: bytes=100-199" http://localhost:8081/range/test_medium.txt')
+	result2 := os.execute('curl -s -H "Range: bytes=100-199" http://127.0.0.1:8081/range/test_medium.txt')
 	if result2.exit_code == 0 {
 		println('✅ Range请求 100-199: 成功')  
 	} else {
@@ -215,7 +215,7 @@ fn test_smart_selection() {
 	println('\n--- 智能选择测试 ---')
 	
 	// 测试小文件（应该使用内存加载）
-	result1 := os.execute('curl -s http://localhost:8081/smart/test_small.txt')
+	result1 := os.execute('curl -s http://127.0.0.1:8081/smart/test_small.txt')
 	if result1.exit_code == 0 {
 		println('✅ 智能选择小文件: 成功')
 	} else {
@@ -223,7 +223,7 @@ fn test_smart_selection() {
 	}
 	
 	// 测试大文件（应该使用流式传输）
-	result2 := os.execute('curl -s -o large_output.txt http://localhost:8081/smart/test_large.txt')
+	result2 := os.execute('curl -s -o large_output.txt http://127.0.0.1:8081/smart/test_large.txt')
 	if result2.exit_code == 0 {
 		// 检查下载的文件大小
 		if os.exists('large_output.txt') {

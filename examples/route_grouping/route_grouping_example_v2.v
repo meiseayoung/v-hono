@@ -233,16 +233,16 @@ app.route(\'/api/books\', mut books)</pre>
     <div class="group">
         <h2>🧪 测试命令</h2>
         <pre># 测试 all() 方法
-curl http://localhost:8080/echo
-curl -X POST http://localhost:8080/echo
-curl -X PUT http://localhost:8080/echo
+curl http://127.0.0.1:8080/echo
+curl -X POST http://127.0.0.1:8080/echo
+curl -X PUT http://127.0.0.1:8080/echo
 
 # 测试自定义 404
-curl http://localhost:8080/not-exist
+curl http://127.0.0.1:8080/not-exist
 
 # 测试 Admin 认证中间件
-curl http://localhost:8080/admin  # 返回 401
-curl -H "Authorization: Bearer admin-token" http://localhost:8080/admin  # 成功</pre>
+curl http://127.0.0.1:8080/admin  # 返回 401
+curl -H "Authorization: Bearer admin-token" http://127.0.0.1:8080/admin  # 成功</pre>
     </div>
 </body>
 </html>'
@@ -251,7 +251,7 @@ curl -H "Authorization: Bearer admin-token" http://localhost:8080/admin  # 成�
 // 打印路由信息
 fn print_routes_info() {
 	println('')
-	println('📍 服务器地址: http://localhost:8080')
+	println('📍 服务器地址: http://127.0.0.1:8080')
 	println('')
 	println('🆕 新功能:')
 	println('  - notFound(): 自定义 404 处理器')

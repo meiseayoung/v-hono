@@ -100,7 +100,7 @@ fn main() {
 	})
 
 	println('🚀 用户角色菜单管理系统已启动')
-	println('📱 访问地址: http://localhost:3000')
+	println('📱 访问地址: http://127.0.0.1:3000')
 	println('')
 	println('📋 示例用户:')
 	println('   用户名: admin, 密码: admin123, 角色: admin')

@@ -1,5 +1,5 @@
-// v-hono 服务器示例 - 用于性能对比测试
-// 运行: v run server_hono.v
+// v-hono picoev 服务器示例 - 高性能版本
+// 运行: v run server_hono_picoev.v
 // 测试: curl http://127.0.0.1:8081/
 
 module main
@@ -50,6 +50,13 @@ fn main() {
 		return c.json('{"category": "${cat}", "item": "${item}"}')
 	})
 	
-	println('启动 v-hono 服务器在端口 8081...')
-	app.listen(':8081')
+	println('╔═══════════════════════════════════════════════════════════════╗')
+	println('║        v-hono picoev 服务器 - 高性能版本                      ║')
+	println('╠═══════════════════════════════════════════════════════════════╣')
+	println('║ 端口: 8081                                                    ║')
+	println('║ 特性: picoev 事件驱动 + Keep-Alive                            ║')
+	println('╚═══════════════════════════════════════════════════════════════╝')
+	
+	// 使用 picoev 启动服务器
+	app.listen_picoev(8081)
 }

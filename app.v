@@ -335,6 +335,19 @@ fn (mut s ServerHanler) exec_context_middlewares(idx int, mut ctx Context, handl
 }
 
 pub fn (mut app Hono) listen(port string) {
+	// 解析端口号
+	port_num := port.trim(':').int()
+	if port_num <= 0 {
+		eprintln('[v-hono] Invalid port: ${port}')
+		return
+	}
+	
+	// 默认使用 picoev 高性能服务器
+	app.listen_picoev(port_num)
+}
+
+// 使用传统 http.Server 启动（保留兼容性）
+pub fn (mut app Hono) listen_http(port string) {
 	app.server.addr = port
 	app.server.handler = server_hanler_new(app)
 	// 增加超时配置以支持更好的 Keep-Alive

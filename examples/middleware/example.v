@@ -34,6 +34,6 @@ fn main() {
 		return c.json('{"data": "some data"}')
 	})
 
-	println('Server starting on http://localhost:3000')
+	println('Server starting on http://127.0.0.1:3000')
 	app.listen(':3000')
 }

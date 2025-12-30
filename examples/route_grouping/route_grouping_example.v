@@ -211,7 +211,7 @@ app.route("/api/books", mut books)</pre>
 // 打印路由信息
 fn print_routes_info() {
 	println('')
-	println('📍 服务器地址: http://localhost:8080')
+	println('📍 服务器地址: http://127.0.0.1:8080')
 	println('')
 	println('📚 Books API (/api/books):')
 	println('  GET    /api/books     - 获取所有书籍')

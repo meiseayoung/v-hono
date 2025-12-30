@@ -1,6 +1,6 @@
 // vweb 服务器示例 - 用于性能对比测试
 // 运行: v run server_vweb.v
-// 测试: curl http://localhost:8080/
+// 测试: curl http://127.0.0.1:8080/
 
 module main
 

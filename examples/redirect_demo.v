@@ -62,7 +62,7 @@ fn main() {
 		return c.html('<h1>Desktop Version</h1>')
 	})
 	
-	println('Server running on http://localhost:8080')
+	println('Server running on http://127.0.0.1:8080')
 	println('Try these endpoints:')
 	println('  GET  /redirect-basic           - Basic redirect (302)')
 	println('  GET  /redirect-permanent       - Permanent redirect (301)')
