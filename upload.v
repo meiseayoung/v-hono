@@ -227,10 +227,18 @@ pub fn (mut manager ChunkUploadManager) handle_chunk_upload(mut ctx Context) htt
 	return ctx.json('{"success": true, "chunk_index": $chunk_index, "all_chunk_uploaded": false, "message": "Chunk uploaded successfully"}')
 }
 
+// 合并请求结构
+pub struct MergeRequest {
+pub:
+	file_hash    string @[json: 'file_hash']
+	filename     string
+	total_chunks int    @[json: 'total_chunks']
+}
+
 // 处理分片合并
 pub fn (mut manager ChunkUploadManager) handle_chunk_merge(mut ctx Context) http.Response {
-	// 解析请求体
-	merge_request := hono.parse_merge_request(ctx.body) or {
+	// 使用 x.json2 解析请求体
+	merge_request := json2.decode[MergeRequest](ctx.body) or {
 		return ctx.bad_request('Invalid request body: ${err}')
 	}
 	

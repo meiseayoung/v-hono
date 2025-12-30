@@ -179,7 +179,6 @@ v-hono/
 ├── config.v           # Configuration management
 ├── logger.v           # Logging system
 ├── multipart.v        # Multipart form parsing
-├── json_parser.v      # JSON parsing utilities
 ├── upload.v           # File upload handling
 ├── database.v         # Database integration
 ├── auth.v             # Authentication system
