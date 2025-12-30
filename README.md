@@ -18,13 +18,13 @@ A high-performance V language web framework inspired by [Hono.js](https://hono.d
 ### From VPM
 
 ```bash
-v install your-github-username.hono
+v install meiseayoung.hono
 ```
 
 ### From GitHub
 
 ```bash
-v install --git https://github.com/your-username/v-hono
+v install --git https://github.com/meiseayoung/v-hono
 ```
 
 ### Local Development
@@ -32,7 +32,7 @@ v install --git https://github.com/your-username/v-hono
 Clone the repository and the module will be available for import:
 
 ```bash
-git clone https://github.com/your-username/v-hono.git
+git clone https://github.com/meiseayoung/v-hono.git
 cd v-hono
 ```
 
