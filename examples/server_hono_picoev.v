@@ -57,6 +57,5 @@ fn main() {
 	println('║ 特性: picoev 事件驱动 + Keep-Alive                            ║')
 	println('╚═══════════════════════════════════════════════════════════════╝')
 	
-	// 使用 picoev 启动服务器
 	app.listen_picoev(8081)
 }

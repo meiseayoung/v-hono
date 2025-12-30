@@ -8,19 +8,22 @@ import picohttpparser
 // picoev 服务器配置
 pub struct PicoevConfig {
 pub:
-	port         int            = 8080
-	host         string
-	family       net.AddrFamily = .ip6
-	timeout_secs int            = 30
-	max_headers  int            = 100
-	max_read     int            = 8192
-	max_write    int            = 8192
+	port              int            = 8080
+	host              string
+	family            net.AddrFamily = .ip6
+	timeout_secs      int            = 8
+	max_headers       int            = 100
+	max_read          int            = 8192
+	max_write         int            = 65536
+	keepalive_timeout int            = 5
+	max_keepalive_req int            = 1000
 }
 
 // picoev 请求上下文
 struct PicoevRequestContext {
 mut:
-	app &Hono = unsafe { nil }
+	app    &Hono = unsafe { nil }
+	config PicoevConfig
 }
 
 // 使用 picoev 启动服务器
@@ -34,6 +37,7 @@ pub fn (mut app Hono) listen_picoev(port int) {
 pub fn (mut app Hono) listen_picoev_with_config(config PicoevConfig) {
 	mut ctx := &PicoevRequestContext{
 		app: unsafe { &app }
+		config: config
 	}
 	
 	mut pico := picoev.new(
@@ -67,26 +71,17 @@ fn picoev_callback(user_data voidptr, req picohttpparser.Request, mut res picoht
 		return
 	}
 	
-	// 解析路径和查询参数
 	path, query_map := parse_path_and_query(req.path)
-	
-	// 路由匹配
+	keepalive := check_keepalive_request(req)
 	method_str := req.method
 	
 	// 优先使用快速路由器
 	if ctx.app.use_fast_router {
 		if route_match := ctx.app.fast_router.match_route(method_str, path) {
-			// 构造 Context
 			mut hono_ctx := create_picoev_context(req, route_match.params, query_map)
-			
-			// 获取中间件
 			middlewares := get_middlewares_for_path_picoev(ctx.app, path)
-			
-			// 执行中间件和处理器
 			response := exec_middlewares_picoev(0, middlewares, mut hono_ctx, route_match.handler)
-			
-			// 发送响应
-			send_picoev_response(mut res, hono_ctx, response)
+			send_picoev_response(mut res, hono_ctx, response, keepalive, ctx.config)
 			return
 		}
 	}
@@ -94,40 +89,50 @@ fn picoev_callback(user_data voidptr, req picohttpparser.Request, mut res picoht
 	// 回退到混合路由器
 	if route_match := ctx.app.context_hybrid_router.match_route(method_str, path) {
 		mut hono_ctx := create_picoev_context(req, route_match.params, query_map)
-		
-		// 获取中间件
 		middlewares := get_middlewares_for_path_picoev(ctx.app, path)
-		
-		// 执行中间件和处理器
 		response := exec_middlewares_picoev(0, middlewares, mut hono_ctx, route_match.handler)
-		
-		send_picoev_response(mut res, hono_ctx, response)
+		send_picoev_response(mut res, hono_ctx, response, keepalive, ctx.config)
 		return
 	}
 	
-	// 404 Not Found - 检查自定义 notFound 处理器
+	// 404 Not Found
 	mut hono_ctx := create_picoev_context(req, map[string]string{}, query_map)
 	
 	if handler := ctx.app.not_found_handler {
 		response := handler(mut hono_ctx)
-		send_picoev_response(mut res, hono_ctx, response)
+		send_picoev_response(mut res, hono_ctx, response, keepalive, ctx.config)
 		return
 	}
 	
 	// 默认 404 响应
-	hono_ctx.status(404)
 	res.raw('HTTP/1.1 404 Not Found\r\n')
 	res.header('Content-Type', 'text/plain')
-	res.header('Connection', 'keep-alive')
+	res.header('Content-Length', '9')
+	if keepalive {
+		res.header('Connection', 'keep-alive')
+		res.header('Keep-Alive', 'timeout=${ctx.config.keepalive_timeout}, max=${ctx.config.max_keepalive_req}')
+	} else {
+		res.header('Connection', 'close')
+	}
 	res.body('Not Found')
 	res.end()
 }
 
-// 获取路径对应的所有中间件（全局 + 路由前缀匹配的）
+// 检查客户端是否请求 Keep-Alive
+fn check_keepalive_request(req picohttpparser.Request) bool {
+	for i in 0 .. req.num_headers {
+		h := req.headers[i]
+		if h.name.to_lower() == 'connection' {
+			return h.value.to_lower().contains('keep-alive')
+		}
+	}
+	return true // HTTP/1.1 默认 Keep-Alive
+}
+
+// 获取路径对应的所有中间件
 fn get_middlewares_for_path_picoev(app &Hono, path string) []ContextMiddleware {
 	mut middlewares := app.context_middlewares.clone()
 	
-	// 按前缀长度排序，确保更具体的前缀后执行
 	mut prefixes := app.route_middlewares.keys()
 	prefixes.sort(a.len < b.len)
 	
@@ -149,9 +154,8 @@ fn exec_middlewares_picoev(idx int, middlewares []ContextMiddleware, mut ctx Con
 		return mw(mut ctx, fn [idx, middlewares, handler] (mut c Context) http.Response {
 			return exec_middlewares_picoev(idx + 1, middlewares, mut c, handler)
 		})
-	} else {
-		return handler.handle(mut ctx)
 	}
+	return handler.handle(mut ctx)
 }
 
 // 解析路径和查询参数
@@ -162,15 +166,11 @@ fn parse_path_and_query(full_path string) (string, map[string]string) {
 		path := full_path[..idx]
 		query_str := full_path[idx + 1..]
 		
-		// 解析查询参数
 		for part in query_str.split('&') {
 			if eq_idx := part.index('=') {
-				key := part[..eq_idx]
-				value := part[eq_idx + 1..]
-				query_map[key] = value
+				query_map[part[..eq_idx]] = part[eq_idx + 1..]
 			}
 		}
-		
 		return path, query_map
 	}
 	
@@ -179,7 +179,6 @@ fn parse_path_and_query(full_path string) (string, map[string]string) {
 
 // 创建 picoev 上下文
 fn create_picoev_context(req picohttpparser.Request, params map[string]string, query map[string]string) Context {
-	// 将 picohttpparser.Request 转换为需要的格式
 	return Context{
 		req: convert_picoev_request(req)
 		params: params
@@ -219,34 +218,27 @@ fn convert_picoev_request(req picohttpparser.Request) http.Request {
 }
 
 // 发送 picoev 响应
-fn send_picoev_response(mut res picohttpparser.Response, ctx Context, response http.Response) {
-	// 设置状态码
+fn send_picoev_response(mut res picohttpparser.Response, ctx Context, response http.Response, keepalive bool, config PicoevConfig) {
 	status_code := if ctx.status_code != 0 { ctx.status_code } else { response.status_code }
 	
 	if status_code == 200 {
 		res.http_ok()
 	} else {
-		// 手动构建状态行
-		status_text := get_status_text(status_code)
-		res.raw('HTTP/1.1 ${status_code} ${status_text}\r\n')
+		res.raw('HTTP/1.1 ${status_code} ${get_status_text(status_code)}\r\n')
 	}
 	
-	// 设置响应头
 	mut has_content_type := false
 	mut has_connection := false
+	mut has_content_length := false
 	
-	// 从 Context 的 headers 中获取
 	for key, value in ctx.headers {
 		res.header(key, value)
-		if key.to_lower() == 'content-type' {
-			has_content_type = true
-		}
-		if key.to_lower() == 'connection' {
-			has_connection = true
-		}
+		key_lower := key.to_lower()
+		if key_lower == 'content-type' { has_content_type = true }
+		if key_lower == 'connection' { has_connection = true }
+		if key_lower == 'content-length' { has_content_length = true }
 	}
 	
-	// 从 http.Response 的 header 中获取
 	if content_type := response.header.get(.content_type) {
 		if !has_content_type {
 			res.header('Content-Type', content_type)
@@ -254,19 +246,25 @@ fn send_picoev_response(mut res picohttpparser.Response, ctx Context, response h
 		}
 	}
 	
-	// 默认 Content-Type
 	if !has_content_type {
-		res.header('Content-Type', 'text/plain')
+		res.header('Content-Type', 'text/plain; charset=utf-8')
 	}
 	
-	// Keep-Alive
+	if !has_content_length {
+		res.header('Content-Length', response.body.len.str())
+	}
+	
 	if !has_connection {
-		res.header('Connection', 'keep-alive')
+		if keepalive {
+			res.header('Connection', 'keep-alive')
+			res.header('Keep-Alive', 'timeout=${config.keepalive_timeout}, max=${config.max_keepalive_req}')
+		} else {
+			res.header('Connection', 'close')
+		}
 	}
 	
-	// 设置响应体并发送
 	res.body(response.body)
-	res.end()  // 关键：必须调用 end() 来实际发送响应
+	res.end()
 }
 
 // 获取状态码文本
