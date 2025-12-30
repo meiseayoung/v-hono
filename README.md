@@ -200,14 +200,6 @@ See the `examples/` directory for more examples:
 - `examples/middleware/` - Middleware usage
 - `examples/route_grouping/` - Route grouping
 
-## Publishing to VPM
-
-1. Create a GitHub repository for your project
-2. Push your code to GitHub
-3. Go to https://vpm.vlang.io/new
-4. Login with your GitHub account
-5. Submit your package
-
 ## License
 
 MIT License
