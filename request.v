@@ -256,6 +256,34 @@ pub fn (mut c Context) status(code int) {
 	c.status_code = code
 }
 
+// redirect method - redirect to a URL with optional status code
+pub fn (mut c Context) redirect(url string, status_code ...int) http.Response {
+	// Set default status code to 302 (Found) if not provided
+	mut code := 302
+	if status_code.len > 0 {
+		code = status_code[0]
+	}
+	
+	// Set the status code
+	c.status(code)
+	
+	// Set the Location header
+	c.headers['Location'] = url
+	
+	// Build and return the response
+	mut headers := http.new_header()
+	headers.add_custom('Connection', 'keep-alive') or { }
+	for key, value in c.headers {
+		headers.add_custom(key, value) or { continue }
+	}
+	
+	return http.Response{
+		status_code: c.status_code
+		header: headers
+		body: ''
+	}
+}
+
 
 
 // 处理器接口，使用 Context

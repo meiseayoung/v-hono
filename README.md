@@ -58,6 +58,11 @@ fn main() {
         return c.json('{"user_id": "${user_id}"}')
     })
 
+    // Redirect example
+    app.get('/old-page', fn (mut c hono.Context) http.Response {
+        return c.redirect('/new-page', 301)
+    })
+
     app.listen(':3000')
 }
 ```
@@ -157,6 +162,7 @@ fn main() {
 - `c.json(data)` - Return JSON response
 - `c.html(data)` - Return HTML response
 - `c.file(path)` - Return file response
+- `c.redirect(url, status_code...)` - Redirect to URL (default status: 302)
 - `c.status(code)` - Set response status code
 - `c.params` - Route parameters
 - `c.query` - Query parameters
@@ -198,6 +204,7 @@ See the `examples/` directory for more examples:
 - `examples/basic/` - Basic usage
 - `examples/middleware/` - Middleware usage
 - `examples/route_grouping/` - Route grouping
+- `examples/redirect_demo.v` - Redirect functionality examples
 
 ## License
 
