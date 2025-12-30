@@ -2,7 +2,28 @@ module main
 
 import hono
 import net.http
-import json
+import x.json2
+
+// 响应结构体
+struct ErrorResponse {
+	error string
+}
+
+struct ProtectedUserResponse {
+	message  string
+	user_id  string
+	username string
+	email    string
+	role     string
+}
+
+struct ProtectedAdminResponse {
+	message  string
+	user_id  string
+	username string
+	email    string
+	role     string
+}
 
 fn main() {
 	// 创建数据库管理器
@@ -37,16 +58,16 @@ fn main() {
 		token := c.req.header.get_custom('Authorization') or { '' }
 		user := auth_manager.verify_token(token) or {
 			c.status(401)
-			return c.json(json.encode({
-				'error': 'User not found'
+			return c.json(json2.encode[ErrorResponse](ErrorResponse{
+				error: 'User not found'
 			}))
 		}
-		return c.json(json.encode({
-			'message': 'This is a protected user route',
-			'user_id': user.id.str(),
-			'username': user.username,
-			'email': user.email,
-			'role': user.role.str()
+		return c.json(json2.encode[ProtectedUserResponse](ProtectedUserResponse{
+			message: 'This is a protected user route'
+			user_id: user.id.str()
+			username: user.username
+			email: user.email
+			role: user.role.str()
 		}))
 	})
 
@@ -54,22 +75,22 @@ fn main() {
 		token := c.req.header.get_custom('Authorization') or { '' }
 		user := auth_manager.verify_token(token) or {
 			c.status(401)
-			return c.json(json.encode({
-				'error': 'User not found'
+			return c.json(json2.encode[ErrorResponse](ErrorResponse{
+				error: 'User not found'
 			}))
 		}
 		if !auth_manager.check_permission(user, 'manage') {
 			c.status(403)
-			return c.json(json.encode({
-				'error': 'Admin access required'
+			return c.json(json2.encode[ErrorResponse](ErrorResponse{
+				error: 'Admin access required'
 			}))
 		}
-		return c.json(json.encode({
-			'message': 'This is a protected admin route',
-			'user_id': user.id.str(),
-			'username': user.username,
-			'email': user.email,
-			'role': user.role.str()
+		return c.json(json2.encode[ProtectedAdminResponse](ProtectedAdminResponse{
+			message: 'This is a protected admin route'
+			user_id: user.id.str()
+			username: user.username
+			email: user.email
+			role: user.role.str()
 		}))
 	})
 

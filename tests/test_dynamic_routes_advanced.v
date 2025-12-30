@@ -1,5 +1,4 @@
 import hono
-import time
 import net.http
 
 fn main() {
@@ -200,7 +199,7 @@ fn test_restful_api_patterns() {
 	
 	mut restful_success := 0
 	for test in restful_tests {
-		if match_result := app.fast_router.match_route(test['method'], test['path']) {
+		if _ := app.fast_router.match_route(test['method'], test['path']) {
 			restful_success++
 			println('  ✅ ${test['method']} ${test['path']} - ${test['description']}')
 		} else {

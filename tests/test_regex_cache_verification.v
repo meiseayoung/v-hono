@@ -153,7 +153,7 @@ fn test_cache_hit_rate() {
 	}
 	
 	// 最终缓存状态
-	regex_total_final, regex_compiled_final := router.get_regex_cache_stats()
+	_, regex_compiled_final := router.get_regex_cache_stats()
 	
 	if regex_compiled_final == regex_compiled_after_first {
 		println('  ✅ 缓存命中率100% - 没有额外的编译')

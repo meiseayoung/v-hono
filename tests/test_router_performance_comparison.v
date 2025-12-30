@@ -57,7 +57,7 @@ fn (router NoCacheRouter) match_route_no_cache(method string, path string) ?hono
 			replaced_path = replaced_path.replace('{', r'\{')
 			replaced_path = replaced_path.replace('}', r'\}')
 			replaced_path = replaced_path.replace('^', r'\^')
-			replaced_path = replaced_path.replace('$', r'\$')
+			replaced_path = replaced_path.replace(r'$', r'\$')
 			replaced_path = replaced_path.replace('|', r'\|')
 			
 			// 提取参数名并替换为命名捕获组
@@ -68,7 +68,7 @@ fn (router NoCacheRouter) match_route_no_cache(method string, path string) ?hono
 				return '(?P<${param_name}>[^/]+)'
 			})
 			
-			replaced_path = '^${replaced_path}$'
+			replaced_path = '^${replaced_path}' + r'$'
 			
 			// 每次都重新编译正则表达式（这是性能瓶颈）
 			mut reg := regex.regex_opt(replaced_path) or { continue }

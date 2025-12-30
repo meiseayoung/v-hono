@@ -1,6 +1,5 @@
 import hono
 import net.http
-import json
 
 fn main() {
 	println('=== 统一错误处理系统测试 ===')

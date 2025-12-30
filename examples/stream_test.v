@@ -11,13 +11,13 @@ fn main() {
 	create_test_files()
 	
 	// 创建应用
-	mut app := hono.Hono.new()
+	mut app := &hono.Hono{}
 	
 	// 测试路由
 	setup_test_routes(mut app)
 	
 	// 在后台启动服务器
-	go app.listen(':8081')
+	spawn app.listen(':8081')
 	
 	// 等待服务器启动
 	time.sleep(2 * time.second)
@@ -227,8 +227,8 @@ fn test_smart_selection() {
 	if result2.exit_code == 0 {
 		// 检查下载的文件大小
 		if os.exists('large_output.txt') {
-			downloaded_size := os.file_size('large_output.txt') or { 0 }
-			original_size := os.file_size('test_large.txt') or { 0 }
+			downloaded_size := os.file_size('large_output.txt')
+			original_size := os.file_size('test_large.txt')
 			if downloaded_size == original_size {
 				println('✅ 智能选择大文件: 成功 (${downloaded_size} bytes)')
 			} else {

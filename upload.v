@@ -3,7 +3,7 @@ module hono
 import net.http
 import os
 import crypto.md5
-import json
+import x.json2
 import time
 
 // 分片上传配置
@@ -291,7 +291,7 @@ pub fn (manager ChunkUploadManager) get_upload_status(mut ctx Context) http.Resp
 		return ctx.resource_not_found('upload', file_hash)
 	}
 	
-	return ctx.json(json.encode(upload_status))
+	return ctx.json(json2.encode[FileUploadStatus](upload_status))
 }
 
 // 更新上传状态

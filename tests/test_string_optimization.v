@@ -1,6 +1,3 @@
-import hono
-import net.http
-import os
 import time
 import strings
 
@@ -32,14 +29,14 @@ fn test_json_building() {
 	
 	// 方法1: 使用字符串插值（优化后）
 	start_time := time.now()
-	for i in 0 .. 10000 {
+	for _ in 0 .. 10000 {
 		_ := '{"message": "测试", "params": {"action": "${test_data['action']}", "id": "${test_data['id']}"}}'
 	}
 	interpolation_time := time.since(start_time)
 	
 	// 方法2: 使用StringBuilder（复杂场景）
 	start_time2 := time.now()
-	for i in 0 .. 10000 {
+	for _ in 0 .. 10000 {
 		mut builder := strings.new_builder(256)
 		builder.write_string('{"message": "测试", "params": {"action": "')
 		builder.write_string(test_data['action'])

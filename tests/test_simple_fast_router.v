@@ -49,7 +49,7 @@ fn test_basic_performance() {
 	mut fast_matches := 0
 	for _ in 0 .. iterations {
 		fast_router.clear_cache()
-		if match_result := fast_router.match_route('GET', test_path) {
+		if _ := fast_router.match_route('GET', test_path) {
 			fast_matches++
 		}
 	}
@@ -64,7 +64,7 @@ fn test_basic_performance() {
 	for _ in 0 .. iterations {
 		hybrid_router.clear_cache()
 		hybrid_router.clear_regex_cache()
-		if match_result := hybrid_router.match_route('GET', test_path) {
+		if _ := hybrid_router.match_route('GET', test_path) {
 			hybrid_matches++
 		}
 	}
@@ -93,7 +93,7 @@ fn test_basic_performance() {
 	start_time3 := time.now()
 	mut fast_cache_matches := 0
 	for _ in 0 .. iterations {
-		if match_result := fast_router.match_route('GET', test_path) {
+		if _ := fast_router.match_route('GET', test_path) {
 			fast_cache_matches++
 		}
 	}
@@ -102,7 +102,7 @@ fn test_basic_performance() {
 	start_time4 := time.now()
 	mut hybrid_cache_matches := 0
 	for _ in 0 .. iterations {
-		if match_result := hybrid_router.match_route('GET', test_path) {
+		if _ := hybrid_router.match_route('GET', test_path) {
 			hybrid_cache_matches++
 		}
 	}

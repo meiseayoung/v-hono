@@ -1,7 +1,7 @@
 module hono
 
 import net.http
-import json
+import x.json2
 
 // 错误类型枚举
 pub enum ErrorType {
@@ -51,7 +51,7 @@ pub fn (eh DefaultErrorHandler) handle_error(mut c Context, error_type ErrorType
 	}
 	
 	c.status(int(error_type))
-	return c.json(json.encode(error_response))
+	return c.json(json2.encode[ErrorResponse](error_response))
 }
 
 // 获取错误名称

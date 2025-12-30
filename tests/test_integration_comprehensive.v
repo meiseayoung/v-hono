@@ -338,7 +338,7 @@ fn test_memory_management_integration() {
 	// 测试缓存操作
 	cache.put('test_key', test_data)
 	
-	if cached := cache.get('test_key') {
+	if _ := cache.get('test_key') {
 		println('  ✅ 缓存存储和获取正常')
 	} else {
 		println('  ❌ 缓存存储或获取失败')

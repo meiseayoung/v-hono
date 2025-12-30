@@ -198,7 +198,7 @@ fn test_backward_compatibility() {
 	mut router := hono.FastRouter.new()
 	
 	// 测试原有接口是否保持兼容
-	compatibility_tests := [
+	_ := [
 		'add_route() 接口',
 		'match_route() 接口',
 		'get_stats() 接口',
@@ -264,7 +264,7 @@ fn test_new_features() {
 	mut router := hono.FastRouter.new_with_cache_size(50)
 	
 	// 新功能清单
-	new_features := [
+	_ := [
 		'LRU 缓存机制',
 		'TTL 过期管理',
 		'健康状态检查',

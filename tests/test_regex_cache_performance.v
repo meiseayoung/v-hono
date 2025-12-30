@@ -74,7 +74,7 @@ fn test_large_scale_repeated_matching() {
 	}
 	
 	// 验证缓存没有增长（说明使用了缓存）
-	regex_total_after, regex_compiled_after := router.get_regex_cache_stats()
+	_, regex_compiled_after := router.get_regex_cache_stats()
 	if regex_compiled_after == regex_compiled {
 		println('  ✅ 缓存使用正常 - 没有额外的编译')
 	} else {
@@ -178,7 +178,7 @@ fn test_multi_route_cache_effect() {
 	}
 	
 	// 验证缓存状态
-	regex_total_final, regex_compiled_final := router.get_regex_cache_stats()
+	_, regex_compiled_final := router.get_regex_cache_stats()
 	if regex_compiled_final == regex_compiled_after_first {
 		println('  ✅ 缓存工作正常 - 没有额外编译')
 	} else {

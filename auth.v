@@ -3,7 +3,7 @@ module hono
 import crypto.sha256
 import crypto.rand
 import time
-import json
+import x.json2
 
 // 用户角色枚举
 pub enum UserRole {
@@ -242,7 +242,7 @@ pub fn (mut auth AuthManager) logout(token string) ! {
 // 创建菜单项
 pub fn (mut auth AuthManager) create_menu_item(name string, path string, icon string, parent_id int, sort_order int, permissions []string) !MenuItem {
 	now := int(time.now().unix())
-	permissions_json := json.encode(permissions)
+	permissions_json := json2.encode[[]string](permissions)
 	permissions_sql := permissions_json.replace('"', "''")
 
 	auth.db.db.exec('INSERT INTO menu_items (name, path, icon, parent_id, sort_order, permissions, status, created_at, updated_at) VALUES ("$name", "$path", "$icon", $parent_id, $sort_order, "$permissions_sql", 1, $now, $now)')
@@ -280,7 +280,7 @@ pub fn (auth AuthManager) get_all_menu_items() ![]MenuItem {
 	mut menus := []MenuItem{}
 	for row in rows {
 		permissions_str := row.vals[6]
-		permissions := json.decode([]string, permissions_str) or { []string{} }
+		permissions := json2.decode[[]string](permissions_str) or { []string{} }
 
 		menus << MenuItem{
 			id: row.vals[0].int()
@@ -327,7 +327,7 @@ pub fn (auth AuthManager) get_user_menus(user User) ![]MenuItem {
 	mut menus := []MenuItem{}
 	for row in rows {
 		permissions_str := row.vals[6]
-		permissions := json.decode([]string, permissions_str) or { []string{} }
+		permissions := json2.decode[[]string](permissions_str) or { []string{} }
 
 		menus << MenuItem{
 			id: row.vals[0].int()

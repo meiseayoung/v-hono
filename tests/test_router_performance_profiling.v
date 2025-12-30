@@ -48,7 +48,7 @@ fn test_step_by_step_performance() {
 	
 	// 步骤3: 第二次匹配（使用缓存）
 	start_time3 := time.now()
-	result2 := router.match_route('GET', test_path)
+	_ = router.match_route('GET', test_path)
 	second_match_time := time.since(start_time3)
 	println('  第二次匹配时间 (使用缓存): ${second_match_time}')
 	
@@ -58,31 +58,49 @@ fn test_step_by_step_performance() {
 	println('  路由缓存: ${cache_size}/${cache_capacity}')
 	println('  正则缓存: ${regex_compiled}/${regex_total}')
 	
-	// 步骤5: 测试纯正则匹配时间
+	// 步骤5: 测试纯正则匹配时间（安全访问）
 	if cached := router.regex_cache[route_path] {
 		if cached.compiled {
-			start_time4 := time.now()
-			for _ in 0 .. 1000 {
-				cached.regex.matches_string(test_path)
+			// 先验证正则能匹配
+			if cached.regex.matches_string(test_path) {
+				start_time4 := time.now()
+				for _ in 0 .. 1000 {
+					cached.regex.matches_string(test_path)
+				}
+				pure_regex_time := time.since(start_time4)
+				avg_regex_time := f64(pure_regex_time.microseconds()) / 1000.0
+				println('  纯正则匹配平均时间: ${avg_regex_time:.3f}μs')
+			} else {
+				println('  ⚠️  正则表达式无法匹配测试路径')
 			}
-			pure_regex_time := time.since(start_time4)
-			avg_regex_time := f64(pure_regex_time.microseconds()) / 1000.0
-			println('  纯正则匹配平均时间: ${avg_regex_time:.3f}μs')
 		}
+	} else {
+		println('  ⚠️  正则缓存中未找到路由')
 	}
 	
-	// 步骤6: 测试参数提取时间
+	// 步骤6: 测试参数提取时间（安全访问）
 	if cached := router.regex_cache[route_path] {
-		if cached.compiled {
-			start_time5 := time.now()
-			for _ in 0 .. 1000 {
-				for param_name in cached.param_names {
-					cached.regex.get_group_by_name(test_path, param_name)
+		if cached.compiled && cached.param_names.len > 0 {
+			// 先执行一次匹配确保正则状态正确
+			if cached.regex.matches_string(test_path) {
+				start_time5 := time.now()
+				mut extract_count := 0
+				for _ in 0 .. 1000 {
+					// 每次提取前重新匹配
+					if cached.regex.matches_string(test_path) {
+						for param_name in cached.param_names {
+							group := cached.regex.get_group_by_name(test_path, param_name)
+							if group.len > 0 {
+								extract_count++
+							}
+						}
+					}
 				}
+				param_extract_time := time.since(start_time5)
+				avg_param_time := f64(param_extract_time.microseconds()) / 1000.0
+				println('  参数提取平均时间: ${avg_param_time:.3f}μs')
+				println('  参数数量: ${cached.param_names.len}')
 			}
-			param_extract_time := time.since(start_time5)
-			avg_param_time := f64(param_extract_time.microseconds()) / 1000.0
-			println('  参数提取平均时间: ${avg_param_time:.3f}μs')
 		}
 	}
 }

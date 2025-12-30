@@ -1,7 +1,7 @@
 module hono
 
 import os
-import json
+import x.json2
 
 // 服务器配置结构
 pub struct ServerConfig {
@@ -107,7 +107,7 @@ pub fn load_config(config_path string) !AppConfig {
 		return error('无法读取配置文件: ${err}')
 	}
 	
-	config := json.decode(AppConfig, config_content) or {
+	config := json2.decode[AppConfig](config_content) or {
 		return error('配置文件格式错误: ${err}')
 	}
 	
@@ -122,7 +122,7 @@ pub fn load_config(config_path string) !AppConfig {
 
 // 保存配置到文件
 pub fn save_config(config AppConfig, config_path string) ! {
-	config_json := json.encode_pretty(config)
+	config_json := json2.encode[AppConfig](config, prettify: true)
 	
 	// 确保目录存在
 	config_dir := os.dir(config_path)

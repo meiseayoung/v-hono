@@ -2,7 +2,7 @@ module hono
 
 import os
 import time
-import json
+import x.json2
 
 // 日志级别枚举
 pub enum LogLevel {
@@ -150,7 +150,7 @@ fn (l &Logger) format_text_log(entry LogEntry) string {
 
 // 格式化日志消息（JSON格式）
 fn (l &Logger) format_json_log(entry LogEntry) string {
-	return json.encode(entry)
+	return json2.encode[LogEntry](entry)
 }
 
 // 写入日志到文件

@@ -478,7 +478,7 @@ fn test_integration(mut stats TestStats) {
 	})
 	
 	// 验证路由统计
-	static_count, dynamic_count, cache_count, _ := app.get_router_stats()
+	static_count, dynamic_count, _, _ := app.get_router_stats()
 	
 	if static_count + dynamic_count < 2 {
 		stats.fail_test('路由添加失败')

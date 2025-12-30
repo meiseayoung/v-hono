@@ -400,7 +400,7 @@ fn test_comprehensive_performance() {
 		mut complex_matches := 0
 		
 		for _ in 0 .. test_iterations {
-			if match_result := app.fast_router.match_route('GET', test['path']) {
+			if _ := app.fast_router.match_route('GET', test['path']) {
 				complex_matches++
 			}
 		}

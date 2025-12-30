@@ -87,7 +87,7 @@ fn test_step_by_step_breakdown() {
 	
 	// 步骤4: 正则表达式缓存检查
 	start_time4 := time.now()
-	cached_regex := router.regex_cache[route_path]
+	_ := router.regex_cache[route_path]
 	step4_time := time.since(start_time4)
 	println('    步骤4 - 正则缓存检查: ${step4_time}')
 	
