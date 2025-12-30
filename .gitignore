@@ -1,25 +1,47 @@
-# Binaries for programs and plugins
-main
-v
+# Compiled binaries
 *.exe
-*.exe~
+*.out
+*.o
+*.a
 *.so
-*.dylib
 *.dll
 
-# Ignore binary output folders
-bin/
+# V compiler output
+*.tmp.c
 
-# Ignore common editor/system specific metadata
-.DS_Store
-.idea/
+# IDE and editor files
 .vscode/
-*.iml
+.idea/
+*.swp
+*.swo
+*~
 
-# ENV
-.env
+# OS files
+.DS_Store
+Thumbs.db
 
-# vweb and database
+# Database files
 *.db
-*.js
-*.exe
+
+# Log files
+*.log
+logs/
+
+# Upload directories
+uploads/
+test_uploads/
+downloads/
+
+# Build artifacts
+build/
+dist/
+
+# Test coverage
+coverage/
+
+# Temporary files
+tmp/
+temp/
+
+# Chunk upload temp files
+chunks/

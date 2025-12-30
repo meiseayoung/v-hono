@@ -1,8 +1,0 @@
-This is a downloadable file.
-
-This file demonstrates the download functionality with:
-- Content-Disposition: attachment header
-- Custom Content-Type
-- File download behavior
-
-Access this file via: GET /download/downloadable.txt 

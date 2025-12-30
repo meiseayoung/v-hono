@@ -64,17 +64,17 @@ fn test_complex_nested_routes() {
 		{
 			'route': '/shop/:region/:city/stores/:store_id/products/:category/:product_id'
 			'path': '/shop/asia/beijing/stores/store123/products/electronics/phone456'
-			'expected_params': ['region:asia', 'city:beijing', 'store_id:store123', 'category:electronics', 'product_id:phone456']
+			'expected_params': 'region:asia,city:beijing,store_id:store123,category:electronics,product_id:phone456'
 		},
 		{
 			'route': '/social/:platform/users/:user_id/posts/:post_id/comments/:comment_id/likes'
 			'path': '/social/twitter/users/user789/posts/post101/comments/comment202/likes'
-			'expected_params': ['platform:twitter', 'user_id:user789', 'post_id:post101', 'comment_id:comment202']
+			'expected_params': 'platform:twitter,user_id:user789,post_id:post101,comment_id:comment202'
 		},
 		{
 			'route': '/enterprise/:org_id/departments/:dept_id/teams/:team_id/members/:member_id'
 			'path': '/enterprise/org999/departments/dept888/teams/team777/members/member666'
-			'expected_params': ['org_id:org999', 'dept_id:dept888', 'team_id:team777', 'member_id:member666']
+			'expected_params': 'org_id:org999,dept_id:dept888,team_id:team777,member_id:member666'
 		}
 	]
 	
@@ -342,31 +342,31 @@ fn test_file_path_routes() {
 	file_tests := [
 		{
 			'path': '/files/document.pdf'
-			'expected_params': ['filename:document.pdf']
+			'expected_params': 'filename:document.pdf'
 		},
 		{
 			'path': '/files/images/photo.jpg'
-			'expected_params': ['category:images', 'filename:photo.jpg']
+			'expected_params': 'category:images,filename:photo.jpg'
 		},
 		{
 			'path': '/files/2023/12/report.xlsx'
-			'expected_params': ['year:2023', 'month:12', 'filename:report.xlsx']
+			'expected_params': 'year:2023,month:12,filename:report.xlsx'
 		},
 		{
 			'path': '/users/user123/files/documents/contract.pdf'
-			'expected_params': ['user_id:user123', 'folder:documents', 'filename:contract.pdf']
+			'expected_params': 'user_id:user123,folder:documents,filename:contract.pdf'
 		},
 		{
 			'path': '/projects/proj456/versions/v1.2.3/files/readme.md'
-			'expected_params': ['project_id:proj456', 'version:v1.2.3', 'filename:readme.md']
+			'expected_params': 'project_id:proj456,version:v1.2.3,filename:readme.md'
 		},
 		{
 			'path': '/media/video/1080p/movie.mp4'
-			'expected_params': ['type:video', 'resolution:1080p', 'filename:movie.mp4']
+			'expected_params': 'type:video,resolution:1080p,filename:movie.mp4'
 		},
 		{
 			'path': '/docs/en/api/authentication.md'
-			'expected_params': ['language:en', 'category:api', 'filename:authentication.md']
+			'expected_params': 'language:en,category:api,filename:authentication.md'
 		}
 	]
 	
@@ -374,7 +374,7 @@ fn test_file_path_routes() {
 	for test in file_tests {
 		if match_result := app.fast_router.match_route('GET', test['path']) {
 			mut params_correct := true
-			expected_params := test['expected_params']
+			expected_params := test['expected_params'].split(',')
 			
 			for expected_param in expected_params {
 				parts := expected_param.split(':')
