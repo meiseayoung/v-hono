@@ -229,14 +229,16 @@ fn send_picoev_response(mut res picohttpparser.Response, ctx Context, response h
 	
 	mut has_content_type := false
 	mut has_connection := false
-	mut has_content_length := false
 	
 	for key, value in ctx.headers {
+		// 跳过 Content-Length，picohttpparser 会在 body() 时自动添加
+		if key.to_lower() == 'content-length' {
+			continue
+		}
 		res.header(key, value)
 		key_lower := key.to_lower()
 		if key_lower == 'content-type' { has_content_type = true }
 		if key_lower == 'connection' { has_connection = true }
-		if key_lower == 'content-length' { has_content_length = true }
 	}
 	
 	if content_type := response.header.get(.content_type) {
@@ -248,10 +250,6 @@ fn send_picoev_response(mut res picohttpparser.Response, ctx Context, response h
 	
 	if !has_content_type {
 		res.header('Content-Type', 'text/plain; charset=utf-8')
-	}
-	
-	if !has_content_length {
-		res.header('Content-Length', response.body.len.str())
 	}
 	
 	if !has_connection {
