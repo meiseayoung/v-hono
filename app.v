@@ -342,8 +342,13 @@ pub fn (mut app Hono) listen(port string) {
 		return
 	}
 	
-	// 默认使用 picoev 高性能服务器
-	app.listen_picoev(port_num)
+	// 使用优化配置的 picoev 高性能服务器（支持高并发）
+	app.listen_picoev_with_config(PicoevConfig{
+		port: port_num
+		timeout_secs: 120         // 高并发场景需要更长超时
+		keepalive_timeout: 30     // Keep-Alive 超时 30 秒
+		max_keepalive_req: 10000  // 单连接最大请求数
+	})
 }
 
 // 使用传统 http.Server 启动（保留兼容性）

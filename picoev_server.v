@@ -11,12 +11,12 @@ pub:
 	port              int            = 8080
 	host              string
 	family            net.AddrFamily = .ip6
-	timeout_secs      int            = 8
+	timeout_secs      int            = 120    // 高并发场景需要更长超时（原 8 秒太短）
 	max_headers       int            = 100
 	max_read          int            = 8192
 	max_write         int            = 65536
-	keepalive_timeout int            = 5
-	max_keepalive_req int            = 1000
+	keepalive_timeout int            = 30     // Keep-Alive 超时延长到 30 秒
+	max_keepalive_req int            = 10000  // 单连接最大请求数提升到 10000
 }
 
 // picoev 请求上下文
