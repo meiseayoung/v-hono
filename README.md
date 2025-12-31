@@ -36,6 +36,80 @@ git clone https://github.com/meiseayoung/v-hono.git
 cd v-hono
 ```
 
+
+## Build & Run
+
+### Standard Build (picoev backend)
+
+```bash
+v your_app.v -o app.exe
+./app.exe
+```
+
+### High-Performance Build (uSockets backend)
+
+For maximum performance with uSockets backend:
+
+```bash
+v -enable-globals -cc gcc -ldflags "-ldbghelp" your_app.v -o app.exe
+./app.exe
+```
+
+**Note**: The `-enable-globals` flag is required for uSockets backend. The `-ldflags "-ldbghelp"` fixes Windows linking issues.
+
+#### Windows Prerequisites
+
+To use uSockets backend on Windows, you need:
+
+1. **GCC (MinGW-w64)** - C compiler
+   ```powershell
+   # Install via Scoop
+   scoop install mingw
+   
+   # Or via Chocolatey
+   choco install mingw
+   
+   # Or download from: https://www.mingw-w64.org/downloads/
+   ```
+
+2. **V Compiler** - Version 0.4.x or later
+   ```powershell
+   # Install via Scoop
+   scoop install vlang
+   
+   # Or download from: https://vlang.io/
+   ```
+
+3. **Verify Installation**
+   ```powershell
+   gcc --version   # Should show MinGW-w64 GCC
+   v version       # Should show V 0.4.x
+   ```
+
+The uSockets library and libuv are pre-compiled and included in the `usockets/lib/` directory.
+
+### Using uSockets Backend
+
+```v
+import hono
+
+fn main() {
+    mut app := hono.Hono.new()
+    
+    app.get('/', fn (mut c hono.Context) http.Response {
+        return c.text('Hello, World!')
+    })
+    
+    // Use uSockets backend (high concurrency optimized)
+    app.listen_usockets(3000)
+    
+    // Or use default picoev backend
+    // app.listen(':3000')
+}
+```
+
+See [benchmark/README.md](benchmark/README.md) for performance benchmarks and [usockets/README.md](usockets/README.md) for uSockets integration details.
+
 ## Quick Start
 
 ```v
@@ -209,3 +283,5 @@ See the `examples/` directory for more examples:
 ## License
 
 MIT License
+
+
