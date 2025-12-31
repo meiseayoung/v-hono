@@ -171,17 +171,18 @@ fn (router FastRouter) precompile_route(method string, handler IHandler) !Precom
 	}
 }
 
-// 快速路由匹配（优化版：静态路由跳过缓存 + 预分配结果）
+// 快速路由匹配（优化版：静态路由跳过缓存 + 预分配结果 + 复用 cache key）
 pub fn (mut router FastRouter) match_route(method string, path string) ?ContextRouteMatch {
+	// 优化：只拼接一次 cache key，复用于静态路由和缓存查找
+	cache_key := '${method}:${path}'
+	
 	// 1. 静态路由直接返回预分配的结果（零分配）
-	static_key := '${method}:${path}'
-	if result := router.static_route_results[static_key] {
+	if result := router.static_route_results[cache_key] {
 		return result
 	}
 	
 	// 2. 动态路由先检查 LRU 缓存（避免重复正则匹配）
 	if router.cache_enabled {
-		cache_key := '${method}:${path}'
 		if cached := router.lru_cache.get(cache_key) {
 			return cached
 		}
@@ -208,9 +209,8 @@ pub fn (mut router FastRouter) match_route(method string, path string) ?ContextR
 				base_path: ''
 			}
 			
-			// 只缓存动态路由结果
+			// 只缓存动态路由结果（复用 cache_key）
 			if router.cache_enabled {
-				cache_key := '${method}:${path}'
 				router.lru_cache.put(cache_key, result)
 			}
 			

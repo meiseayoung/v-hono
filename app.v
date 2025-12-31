@@ -40,6 +40,10 @@ pub mut:
 	use_fast_router bool = true  // 新增：是否使用快速路由器
 	context_middlewares []ContextMiddleware
 	route_middlewares map[string][]ContextMiddleware  // 路由前缀对应的中间件
+	// 优化：预排序的中间件前缀列表（启动时计算一次）
+	sorted_middleware_prefixes []string
+	// 优化：标记是否有中间件（用于零中间件快速路径）
+	has_middlewares bool
 }
 
 // Context 中间件类型
@@ -185,6 +189,14 @@ pub fn (mut app Hono) all(path string, handler fn (mut Context) http.Response) {
 // Context 中间件
 pub fn (mut app Hono) use(mw ContextMiddleware) {
 	app.context_middlewares << mw
+	app.has_middlewares = true
+}
+
+// 预计算中间件前缀排序（在服务器启动前调用）
+pub fn (mut app Hono) precompute_middleware_prefixes() {
+	app.sorted_middleware_prefixes = app.route_middlewares.keys()
+	app.sorted_middleware_prefixes.sort(a.len < b.len)
+	app.has_middlewares = app.context_middlewares.len > 0 || app.route_middlewares.len > 0
 }
 
 // notFound() - 自定义 404 处理器
@@ -234,12 +246,18 @@ fn (mut s ServerHanler) handle(req http.Request) http.Response {
 			body := req.data
 			// 构造 Context
 			mut ctx := Context.new(req, param_map, query_map, body)
+			
+			// 优化：零中间件快速路径
+			if !s.app.has_middlewares {
+				return route_match.handler.handle(mut ctx)
+			}
+			
 			// 获取该路径对应的中间件
 			middlewares := s.get_middlewares_for_path(url.path)
 			// 洋葱模型递归执行中间件
 			return s.exec_context_middlewares_with_list(0, middlewares, mut ctx, fn [route_match] (mut c Context) http.Response {
 				return route_match.handler.handle(mut c)
-			})
+		})
 		}
 		
 		// 如果快速路由器没有匹配，回退到混合路由器
@@ -250,6 +268,12 @@ fn (mut s ServerHanler) handle(req http.Request) http.Response {
 			body := req.data
 			// 构造 Context
 			mut ctx := Context.new(req, param_map, query_map, body)
+			
+			// 优化：零中间件快速路径
+			if !s.app.has_middlewares {
+				return route_match.handler.handle(mut ctx)
+			}
+			
 			// 获取该路径对应的中间件
 			middlewares := s.get_middlewares_for_path(url.path)
 			// 洋葱模型递归执行中间件
@@ -265,6 +289,12 @@ fn (mut s ServerHanler) handle(req http.Request) http.Response {
 			body := req.data
 			// 构造 Context
 			mut ctx := Context.new(req, param_map, query_map, body)
+			
+			// 优化：零中间件快速路径
+			if !s.app.has_middlewares {
+				return route_match.handler.handle(mut ctx)
+			}
+			
 			// 获取该路径对应的中间件
 			middlewares := s.get_middlewares_for_path(url.path)
 			// 洋葱模型递归执行中间件
@@ -291,15 +321,17 @@ fn (mut s ServerHanler) handle(req http.Request) http.Response {
 	})
 }
 
-// 获取路径对应的所有中间件（全局 + 路由前缀匹配的）
+// 获取路径对应的所有中间件（全局 + 路由前缀匹配的）- 优化版
 fn (s ServerHanler) get_middlewares_for_path(path string) []ContextMiddleware {
+	// 优化：只有全局中间件时，直接返回引用（避免克隆）
+	if s.app.route_middlewares.len == 0 {
+		return s.app.context_middlewares
+	}
+	
 	mut middlewares := s.app.context_middlewares.clone()
 	
-	// 按前缀长度排序，确保更具体的前缀后执行
-	mut prefixes := s.app.route_middlewares.keys()
-	prefixes.sort(a.len < b.len)
-	
-	for prefix in prefixes {
+	// 优化：使用预排序的前缀列表（启动时已排序，不需要每次请求都排序）
+	for prefix in s.app.sorted_middleware_prefixes {
 		if path.starts_with(prefix) || prefix == '/' {
 			if mws := s.app.route_middlewares[prefix] {
 				middlewares << mws
@@ -342,6 +374,9 @@ pub fn (mut app Hono) listen(port string) {
 		return
 	}
 	
+	// 优化：预计算中间件前缀排序
+	app.precompute_middleware_prefixes()
+	
 	// 使用优化配置的 picoev 高性能服务器（支持高并发）
 	app.listen_picoev_with_config(PicoevConfig{
 		port: port_num
@@ -372,6 +407,7 @@ pub fn (mut app Hono) route(prefix string, mut subapp Hono) {
 		} else {
 			app.route_middlewares[prefix] = subapp.context_middlewares.clone()
 		}
+		app.has_middlewares = true
 	}
 	
 	// 继承子应用的 notFound 和 onError 处理器（如果主应用没有设置）
@@ -508,5 +544,7 @@ pub fn Hono.new() Hono {
 		fast_router: FastRouter.new()
 		use_fast_router: true
 		route_middlewares: map[string][]ContextMiddleware{}
+		sorted_middleware_prefixes: []string{}
+		has_middlewares: false
 	}
 }

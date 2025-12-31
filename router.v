@@ -208,10 +208,34 @@ pub fn (router ContextHybridRouter) match_static_route(method string, path strin
 	return none
 }
 
-// Context 版本的动态路径匹配
+// Context 版本的动态路径匹配（保留旧版本兼容）
 fn (mut router ContextHybridRouter) match_dynamic_route(method string, path string) ?ContextRouteMatch {
-	// 先检查缓存
 	cache_key := '${method}:${path}'
+	return router.match_dynamic_route_with_key(cache_key, method, path)
+}
+
+// Context 版本的主匹配函数（优化版：复用 cache key）
+pub fn (mut router ContextHybridRouter) match_route(method string, path string) ?ContextRouteMatch {
+	// 优化：只拼接一次 cache key
+	cache_key := '${method}:${path}'
+	
+	// 1. 先尝试静态路径匹配（最快）
+	if cache_key in router.static_routes {
+		return ContextRouteMatch{
+			handler: router.static_routes[cache_key]
+			params: map[string]string{}
+			path: path
+			base_path: ''
+		}
+	}
+	
+	// 2. 再尝试动态路径匹配（复用 cache_key）
+	return router.match_dynamic_route_with_key(cache_key, method, path)
+}
+
+// Context 版本的动态路径匹配（优化版：接收预计算的 cache_key）
+fn (mut router ContextHybridRouter) match_dynamic_route_with_key(cache_key string, method string, path string) ?ContextRouteMatch {
+	// 先检查缓存
 	if cached := router.cache.get(cache_key) {
 		return cached
 	}
@@ -238,22 +262,6 @@ fn (mut router ContextHybridRouter) match_dynamic_route(method string, path stri
 		}
 	}
 	return none
-}
-
-// Context 版本的主匹配函数
-pub fn (mut router ContextHybridRouter) match_route(method string, path string) ?ContextRouteMatch {
-	// 1. 先尝试静态路径匹配（最快）
-	if static_handler := router.match_static_route(method, path) {
-		return ContextRouteMatch{
-			handler: static_handler
-			params: map[string]string{}
-			path: path
-			base_path: ''
-		}
-	}
-	
-	// 2. 再尝试动态路径匹配
-	return router.match_dynamic_route(method, path)
 }
 
 // Context 版本的获取所有路由

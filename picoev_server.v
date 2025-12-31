@@ -79,7 +79,15 @@ fn picoev_callback(user_data voidptr, req picohttpparser.Request, mut res picoht
 	if ctx.app.use_fast_router {
 		if route_match := ctx.app.fast_router.match_route(method_str, path) {
 			mut hono_ctx := create_picoev_context(req, route_match.params, query_map)
-			middlewares := get_middlewares_for_path_picoev(ctx.app, path)
+			
+			// 优化：零中间件快速路径
+			if !ctx.app.has_middlewares {
+				response := route_match.handler.handle(mut hono_ctx)
+				send_picoev_response(mut res, hono_ctx, response, keepalive, ctx.config)
+				return
+			}
+			
+			middlewares := get_middlewares_for_path_picoev_optimized(ctx.app, path)
 			response := exec_middlewares_picoev(0, middlewares, mut hono_ctx, route_match.handler)
 			send_picoev_response(mut res, hono_ctx, response, keepalive, ctx.config)
 			return
@@ -89,7 +97,15 @@ fn picoev_callback(user_data voidptr, req picohttpparser.Request, mut res picoht
 	// 回退到混合路由器
 	if route_match := ctx.app.context_hybrid_router.match_route(method_str, path) {
 		mut hono_ctx := create_picoev_context(req, route_match.params, query_map)
-		middlewares := get_middlewares_for_path_picoev(ctx.app, path)
+		
+		// 优化：零中间件快速路径
+		if !ctx.app.has_middlewares {
+			response := route_match.handler.handle(mut hono_ctx)
+			send_picoev_response(mut res, hono_ctx, response, keepalive, ctx.config)
+			return
+		}
+		
+		middlewares := get_middlewares_for_path_picoev_optimized(ctx.app, path)
 		response := exec_middlewares_picoev(0, middlewares, mut hono_ctx, route_match.handler)
 		send_picoev_response(mut res, hono_ctx, response, keepalive, ctx.config)
 		return
@@ -129,14 +145,17 @@ fn check_keepalive_request(req picohttpparser.Request) bool {
 	return true // HTTP/1.1 默认 Keep-Alive
 }
 
-// 获取路径对应的所有中间件
-fn get_middlewares_for_path_picoev(app &Hono, path string) []ContextMiddleware {
+// 获取路径对应的所有中间件（优化版：使用预排序的前缀列表）
+fn get_middlewares_for_path_picoev_optimized(app &Hono, path string) []ContextMiddleware {
+	// 优化：只有全局中间件时，直接返回引用（避免克隆）
+	if app.route_middlewares.len == 0 {
+		return app.context_middlewares
+	}
+	
 	mut middlewares := app.context_middlewares.clone()
 	
-	mut prefixes := app.route_middlewares.keys()
-	prefixes.sort(a.len < b.len)
-	
-	for prefix in prefixes {
+	// 优化：使用预排序的前缀列表（启动时已排序，不需要每次请求都排序）
+	for prefix in app.sorted_middleware_prefixes {
 		if path.starts_with(prefix) || prefix == '/' {
 			if mws := app.route_middlewares[prefix] {
 				middlewares << mws
@@ -145,6 +164,11 @@ fn get_middlewares_for_path_picoev(app &Hono, path string) []ContextMiddleware {
 	}
 	
 	return middlewares
+}
+
+// 获取路径对应的所有中间件（保留旧版本兼容）
+fn get_middlewares_for_path_picoev(app &Hono, path string) []ContextMiddleware {
+	return get_middlewares_for_path_picoev_optimized(app, path)
 }
 
 // 执行中间件链

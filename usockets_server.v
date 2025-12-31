@@ -49,6 +49,9 @@ pub fn (mut app Hono) listen_usockets(port int) {
 
 // 使用 uSockets 启动服务器（带配置）
 pub fn (mut app Hono) listen_usockets_with_config(config UsocketsConfig) {
+	// 优化：预计算中间件前缀排序
+	app.precompute_middleware_prefixes()
+	
 	// 存储到全局变量
 	g_usockets_app = unsafe { &app }
 	g_usockets_config = config
@@ -102,9 +105,16 @@ fn usockets_on_data(s usockets.Socket, data &char, length int) usockets.Socket {
 	if g_usockets_app.use_fast_router {
 		if route_match := g_usockets_app.fast_router.match_route(method, path) {
 			mut hono_ctx := create_usockets_context(method, path, route_match.params, query_map, body)
-			middlewares := get_middlewares_for_path_usockets(g_usockets_app, path)
-			response := exec_middlewares_usockets(0, middlewares, mut hono_ctx, route_match.handler)
-			send_usockets_response(s, hono_ctx, response)
+			
+			// 优化1：零中间件快速路径
+			if !g_usockets_app.has_middlewares {
+				response := route_match.handler.handle(mut hono_ctx)
+				send_usockets_response(s, hono_ctx, response)
+			} else {
+				middlewares := get_middlewares_for_path_usockets_optimized(g_usockets_app, path)
+				response := exec_middlewares_usockets(0, middlewares, mut hono_ctx, route_match.handler)
+				send_usockets_response(s, hono_ctx, response)
+			}
 			response_sent = true
 		}
 	}
@@ -113,9 +123,16 @@ fn usockets_on_data(s usockets.Socket, data &char, length int) usockets.Socket {
 	if !response_sent {
 		if route_match := g_usockets_app.context_hybrid_router.match_route(method, path) {
 			mut hono_ctx := create_usockets_context(method, path, route_match.params, query_map, body)
-			middlewares := get_middlewares_for_path_usockets(g_usockets_app, path)
-			response := exec_middlewares_usockets(0, middlewares, mut hono_ctx, route_match.handler)
-			send_usockets_response(s, hono_ctx, response)
+			
+			// 优化1：零中间件快速路径
+			if !g_usockets_app.has_middlewares {
+				response := route_match.handler.handle(mut hono_ctx)
+				send_usockets_response(s, hono_ctx, response)
+			} else {
+				middlewares := get_middlewares_for_path_usockets_optimized(g_usockets_app, path)
+				response := exec_middlewares_usockets(0, middlewares, mut hono_ctx, route_match.handler)
+				send_usockets_response(s, hono_ctx, response)
+			}
 			response_sent = true
 		}
 	}
@@ -216,14 +233,17 @@ fn create_usockets_context(method string, path string, params map[string]string,
 	}
 }
 
-// 获取路径对应的所有中间件
-fn get_middlewares_for_path_usockets(app &Hono, path string) []ContextMiddleware {
+// 获取路径对应的所有中间件（优化版：使用预排序的前缀列表）
+fn get_middlewares_for_path_usockets_optimized(app &Hono, path string) []ContextMiddleware {
+	// 优化2：只有全局中间件时，直接返回引用（避免克隆）
+	if app.route_middlewares.len == 0 {
+		return app.context_middlewares
+	}
+	
 	mut middlewares := app.context_middlewares.clone()
 
-	mut prefixes := app.route_middlewares.keys()
-	prefixes.sort(a.len < b.len)
-
-	for prefix in prefixes {
+	// 优化3：使用预排序的前缀列表（启动时已排序，不需要每次请求都排序）
+	for prefix in app.sorted_middleware_prefixes {
 		if path.starts_with(prefix) || prefix == '/' {
 			if mws := app.route_middlewares[prefix] {
 				middlewares << mws
@@ -232,6 +252,11 @@ fn get_middlewares_for_path_usockets(app &Hono, path string) []ContextMiddleware
 	}
 
 	return middlewares
+}
+
+// 获取路径对应的所有中间件（保留旧版本兼容）
+fn get_middlewares_for_path_usockets(app &Hono, path string) []ContextMiddleware {
+	return get_middlewares_for_path_usockets_optimized(app, path)
 }
 
 // 执行中间件链
