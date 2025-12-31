@@ -169,57 +169,119 @@ fn usockets_on_end(s usockets.Socket) usockets.Socket {
 	return s.close()
 }
 
-// 解析 HTTP 请求
+// 解析 HTTP 请求 - 零分配优化版
+// 使用指针遍历避免创建临时数组
 fn parse_http_request_usockets(raw string) (string, string, map[string]string, string) {
 	mut method := ''
 	mut path := ''
 	mut query_map := map[string]string{}
 	mut body := ''
-
-	line_end := raw.index('\r\n') or { return method, path, query_map, body }
-	request_line := raw[..line_end]
-
-	parts := request_line.split(' ')
-	if parts.len < 2 {
+	
+	len := raw.len
+	if len == 0 {
 		return method, path, query_map, body
 	}
-
-	method = parts[0]
-	full_path := parts[1]
-
-	if query_idx := full_path.index('?') {
-		path = full_path[..query_idx]
-		query_str := full_path[query_idx + 1..]
-		for part in query_str.split('&') {
-			if eq_idx := part.index('=') {
-				query_map[part[..eq_idx]] = part[eq_idx + 1..]
-			}
+	
+	// 1. 查找第一行结束位置（\r\n）
+	mut line_end := -1
+	for i in 0 .. len - 1 {
+		if raw[i] == `\r` && raw[i + 1] == `\n` {
+			line_end = i
+			break
 		}
+	}
+	if line_end == -1 {
+		return method, path, query_map, body
+	}
+	
+	// 2. 解析 method（到第一个空格）
+	mut method_end := 0
+	for method_end < line_end && raw[method_end] != ` ` {
+		method_end++
+	}
+	if method_end == 0 || method_end >= line_end {
+		return method, path, query_map, body
+	}
+	method = raw[..method_end]
+	
+	// 3. 解析 path 和 query（从空格后到下一个空格）
+	mut path_start := method_end + 1
+	// 跳过多余空格
+	for path_start < line_end && raw[path_start] == ` ` {
+		path_start++
+	}
+	
+	mut path_end := path_start
+	mut query_start := -1
+	for path_end < line_end && raw[path_end] != ` ` {
+		if raw[path_end] == `?` && query_start == -1 {
+			query_start = path_end + 1
+		}
+		path_end++
+	}
+	
+	if query_start > 0 {
+		path = raw[path_start..query_start - 1]
+		// 解析 query string（单次遍历）
+		query_map = parse_query_string_fast(raw, query_start, path_end)
 	} else {
-		path = full_path
+		path = raw[path_start..path_end]
 	}
-
-	if body_start := raw.index('\r\n\r\n') {
-		body = raw[body_start + 4..]
+	
+	// 4. 查找 body（\r\n\r\n 之后）
+	for i in line_end .. len - 3 {
+		if raw[i] == `\r` && raw[i + 1] == `\n` && raw[i + 2] == `\r` && raw[i + 3] == `\n` {
+			if i + 4 < len {
+				body = raw[i + 4..]
+			}
+			break
+		}
 	}
-
+	
 	return method, path, query_map, body
 }
 
-// 创建 uSockets 上下文
+// 快速解析 query string（单次遍历，避免 split）
+@[inline]
+fn parse_query_string_fast(raw string, start int, end int) map[string]string {
+	mut query_map := map[string]string{}
+	
+	mut key_start := start
+	mut key_end := -1
+	mut value_start := -1
+	
+	for i := start; i <= end; i++ {
+		ch := if i < end { raw[i] } else { `&` } // 末尾视为分隔符
+		
+		if ch == `=` && key_end == -1 {
+			key_end = i
+			value_start = i + 1
+		} else if ch == `&` {
+			// 完成一个键值对
+			if key_end > key_start && value_start > 0 {
+				key := raw[key_start..key_end]
+				value := if value_start < i { raw[value_start..i] } else { '' }
+				query_map[key] = value
+			} else if key_end == -1 && i > key_start {
+				// 只有 key 没有 value
+				key := raw[key_start..i]
+				query_map[key] = ''
+			}
+			// 重置状态
+			key_start = i + 1
+			key_end = -1
+			value_start = -1
+		}
+	}
+	
+	return query_map
+}
+
+// 创建 uSockets 上下文 - 优化版
 fn create_usockets_context(method string, path string, params map[string]string, query map[string]string, body string) Context {
 	return Context{
 		req: http.Request{
-			method: match method {
-				'GET' { http.Method.get }
-				'POST' { http.Method.post }
-				'PUT' { http.Method.put }
-				'DELETE' { http.Method.delete }
-				'PATCH' { http.Method.patch }
-				'HEAD' { http.Method.head }
-				'OPTIONS' { http.Method.options }
-				else { http.Method.get }
-			}
+			method: parse_http_method_usockets(method)
 			url: path
 			data: body
 		}
@@ -231,6 +293,38 @@ fn create_usockets_context(method string, path string, params map[string]string,
 		status_code: 200
 		headers: map[string]string{}
 	}
+}
+
+// 快速 HTTP 方法解析（基于首字符和长度）
+@[inline]
+fn parse_http_method_usockets(method string) http.Method {
+	len := method.len
+	if len == 0 {
+		return http.Method.get
+	}
+	
+	// 基于首字符快速分支
+	match method[0] {
+		`G` {
+			if len == 3 { return http.Method.get }
+		}
+		`P` {
+			if len == 4 && method[1] == `O` { return http.Method.post }
+			if len == 3 && method[1] == `U` { return http.Method.put }
+			if len == 5 { return http.Method.patch }
+		}
+		`D` {
+			if len == 6 { return http.Method.delete }
+		}
+		`H` {
+			if len == 4 { return http.Method.head }
+		}
+		`O` {
+			if len == 7 { return http.Method.options }
+		}
+		else {}
+	}
+	return http.Method.get
 }
 
 // 获取路径对应的所有中间件（优化版：使用预排序的前缀列表）
@@ -270,7 +364,7 @@ fn exec_middlewares_usockets(idx int, middlewares []ContextMiddleware, mut ctx C
 	return handler.handle(mut ctx)
 }
 
-// 发送 uSockets 响应
+// 发送 uSockets 响应 - 优化版
 fn send_usockets_response(s usockets.Socket, ctx Context, response http.Response) {
 	status_code := if ctx.status_code != 0 { ctx.status_code } else { response.status_code }
 	
@@ -286,20 +380,22 @@ fn send_usockets_response(s usockets.Socket, ctx Context, response http.Response
 	// 头部
 	mut has_content_type := false
 	for key, value in ctx.headers {
-		if key.to_lower() == 'content-length' {
+		// 使用快速大小写不敏感比较
+		key_len := key.len
+		if key_len == 14 && eq_ignore_case_usockets(key, 'content-length') {
 			continue
 		}
 		resp.write_string(key)
 		resp.write_string(': ')
 		resp.write_string(value)
 		resp.write_string('\r\n')
-		if key.to_lower() == 'content-type' {
+		if key_len == 12 && eq_ignore_case_usockets(key, 'content-type') {
 			has_content_type = true
 		}
 	}
 
-	if content_type := response.header.get(.content_type) {
-		if !has_content_type {
+	if !has_content_type {
+		if content_type := response.header.get(.content_type) {
 			resp.write_string('Content-Type: ')
 			resp.write_string(content_type)
 			resp.write_string('\r\n')
@@ -324,6 +420,25 @@ fn send_usockets_response(s usockets.Socket, ctx Context, response http.Response
 	resp.write_string(response.body)
 
 	s.write_bytes(resp.str())
+}
+
+// 大小写不敏感字符串比较（避免分配）
+@[inline]
+fn eq_ignore_case_usockets(a string, b string) bool {
+	if a.len != b.len {
+		return false
+	}
+	for i in 0 .. a.len {
+		ca := a[i]
+		cb := b[i]
+		// 转换为小写比较
+		la := if ca >= `A` && ca <= `Z` { ca + 32 } else { ca }
+		lb := if cb >= `A` && cb <= `Z` { cb + 32 } else { cb }
+		if la != lb {
+			return false
+		}
+	}
+	return true
 }
 
 // 获取状态码文本

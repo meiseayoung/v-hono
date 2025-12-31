@@ -227,19 +227,19 @@ fn (mut s ServerHanler) handle(req http.Request) http.Response {
 		}
 	}
 	
-	// 解析 query
-	raw_query := url.query().to_map()
+	// 解析 query - 优化：直接使用 url.raw_query 避免额外解析
 	mut query_map := map[string]string{}
-	for key, values in raw_query {
-		if values.len > 0 {
-			query_map[key] = values[0]
-		}
+	if url.raw_query.len > 0 {
+		query_map = parse_query_string_app(url.raw_query)
 	}
+	
+	// 缓存 method 字符串，避免多次调用 .str()
+	method_str := req.method.str()
 	
 	// 尝试 Context 路由
 	// 优先使用快速路由器
 	if s.app.use_fast_router {
-		if route_match := s.app.fast_router.match_route(req.method.str(), url.path) {
+		if route_match := s.app.fast_router.match_route(method_str, url.path) {
 			// param 由路由匹配结果提供
 			param_map := route_match.params.clone()
 			// body
@@ -261,7 +261,7 @@ fn (mut s ServerHanler) handle(req http.Request) http.Response {
 		}
 		
 		// 如果快速路由器没有匹配，回退到混合路由器
-		if route_match := s.app.context_hybrid_router.match_route(req.method.str(), url.path) {
+		if route_match := s.app.context_hybrid_router.match_route(method_str, url.path) {
 			// param 由路由匹配结果提供
 			param_map := route_match.params.clone()
 			// body
@@ -282,7 +282,7 @@ fn (mut s ServerHanler) handle(req http.Request) http.Response {
 			})
 		}
 	} else {
-		if route_match := s.app.context_hybrid_router.match_route(req.method.str(), url.path) {
+		if route_match := s.app.context_hybrid_router.match_route(method_str, url.path) {
 			// param 由路由匹配结果提供
 			param_map := route_match.params.clone()
 			// body
@@ -547,4 +547,45 @@ pub fn Hono.new() Hono {
 		sorted_middleware_prefixes: []string{}
 		has_middlewares: false
 	}
+}
+
+// 快速解析 query string（单次遍历，避免 split）- app.v 版本
+@[inline]
+fn parse_query_string_app(query_str string) map[string]string {
+	mut query_map := map[string]string{}
+	len := query_str.len
+	
+	if len == 0 {
+		return query_map
+	}
+	
+	mut key_start := 0
+	mut key_end := -1
+	mut value_start := -1
+	
+	for i := 0; i <= len; i++ {
+		ch := if i < len { query_str[i] } else { `&` } // 末尾视为分隔符
+		
+		if ch == `=` && key_end == -1 {
+			key_end = i
+			value_start = i + 1
+		} else if ch == `&` {
+			// 完成一个键值对
+			if key_end > key_start && value_start > 0 {
+				key := query_str[key_start..key_end]
+				value := if value_start < i { query_str[value_start..i] } else { '' }
+				query_map[key] = value
+			} else if key_end == -1 && i > key_start {
+				// 只有 key 没有 value
+				key := query_str[key_start..i]
+				query_map[key] = ''
+			}
+			// 重置状态
+			key_start = i + 1
+			key_end = -1
+			value_start = -1
+		}
+	}
+	
+	return query_map
 }

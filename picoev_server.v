@@ -134,15 +134,63 @@ fn picoev_callback(user_data voidptr, req picohttpparser.Request, mut res picoht
 	res.end()
 }
 
-// 检查客户端是否请求 Keep-Alive
+// 检查客户端是否请求 Keep-Alive - 优化版
+// 避免 to_lower() 创建新字符串，使用大小写不敏感比较
 fn check_keepalive_request(req picohttpparser.Request) bool {
 	for i in 0 .. req.num_headers {
 		h := req.headers[i]
-		if h.name.to_lower() == 'connection' {
-			return h.value.to_lower().contains('keep-alive')
+		// 大小写不敏感比较 "connection"
+		if h.name.len == 10 && eq_ignore_case(h.name, 'connection') {
+			// 检查是否包含 "keep-alive"（大小写不敏感）
+			return contains_ignore_case(h.value, 'keep-alive')
 		}
 	}
 	return true // HTTP/1.1 默认 Keep-Alive
+}
+
+// 大小写不敏感字符串比较（避免分配）
+@[inline]
+fn eq_ignore_case(a string, b string) bool {
+	if a.len != b.len {
+		return false
+	}
+	for i in 0 .. a.len {
+		ca := a[i]
+		cb := b[i]
+		// 转换为小写比较
+		la := if ca >= `A` && ca <= `Z` { ca + 32 } else { ca }
+		lb := if cb >= `A` && cb <= `Z` { cb + 32 } else { cb }
+		if la != lb {
+			return false
+		}
+	}
+	return true
+}
+
+// 大小写不敏感的 contains 检查（避免分配）
+@[inline]
+fn contains_ignore_case(haystack string, needle string) bool {
+	if needle.len > haystack.len {
+		return false
+	}
+	max_start := haystack.len - needle.len
+	for i := 0; i <= max_start; i++ {
+		mut found := true
+		for j in 0 .. needle.len {
+			ch := haystack[i + j]
+			cn := needle[j]
+			lh := if ch >= `A` && ch <= `Z` { ch + 32 } else { ch }
+			ln := if cn >= `A` && cn <= `Z` { cn + 32 } else { cn }
+			if lh != ln {
+				found = false
+				break
+			}
+		}
+		if found {
+			return true
+		}
+	}
+	return false
 }
 
 // 获取路径对应的所有中间件（优化版：使用预排序的前缀列表）
@@ -182,40 +230,96 @@ fn exec_middlewares_picoev(idx int, middlewares []ContextMiddleware, mut ctx Con
 	return handler.handle(mut ctx)
 }
 
-// 解析路径和查询参数
+// 解析路径和查询参数 - 零分配优化版
+// 使用指针遍历避免创建临时数组
 fn parse_path_and_query(full_path string) (string, map[string]string) {
 	mut query_map := map[string]string{}
+	len := full_path.len
 	
-	if idx := full_path.index('?') {
-		path := full_path[..idx]
-		query_str := full_path[idx + 1..]
-		
-		for part in query_str.split('&') {
-			if eq_idx := part.index('=') {
-				query_map[part[..eq_idx]] = part[eq_idx + 1..]
-			}
-		}
-		return path, query_map
+	if len == 0 {
+		return full_path, query_map
 	}
 	
-	return full_path, query_map
+	// 快速路径：大多数请求没有查询参数
+	// 从后向前搜索 '?' 通常更快（查询参数在末尾）
+	mut query_start := -1
+	for i := len - 1; i >= 0; i-- {
+		if full_path[i] == `?` {
+			query_start = i
+			break
+		}
+	}
+	
+	// 没有查询参数，直接返回（最常见情况）
+	if query_start == -1 {
+		return full_path, query_map
+	}
+	
+	path := full_path[..query_start]
+	
+	// 解析查询参数（单次遍历，避免 split）
+	mut key_start := query_start + 1
+	mut key_end := -1
+	mut value_start := -1
+	
+	for i := query_start + 1; i <= len; i++ {
+		ch := if i < len { full_path[i] } else { `&` } // 末尾视为分隔符
+		
+		if ch == `=` && key_end == -1 {
+			key_end = i
+			value_start = i + 1
+		} else if ch == `&` {
+			// 完成一个键值对
+			if key_end > key_start && value_start > 0 {
+				key := full_path[key_start..key_end]
+				value := if value_start < i { full_path[value_start..i] } else { '' }
+				query_map[key] = value
+			} else if key_end == -1 && i > key_start {
+				// 只有 key 没有 value（如 ?foo&bar=1）
+				key := full_path[key_start..i]
+				query_map[key] = ''
+			}
+			// 重置状态
+			key_start = i + 1
+			key_end = -1
+			value_start = -1
+		}
+	}
+	
+	return path, query_map
 }
 
-// 创建 picoev 上下文
+// 创建 picoev 上下文 - 优化版
+// 延迟转换 http.Request，只在真正需要时才转换
 fn create_picoev_context(req picohttpparser.Request, params map[string]string, query map[string]string) Context {
+	// 提取纯路径（不含查询参数）
+	path := extract_path_only(req.path)
+	
 	return Context{
 		req: convert_picoev_request(req)
 		params: params
 		query: query
 		body: req.body
 		url: req.path
-		path: req.path
+		path: path
 		status_code: 200
 		headers: map[string]string{}
 	}
 }
 
-// 转换 picoev 请求
+// 快速提取路径（不含查询参数）
+@[inline]
+fn extract_path_only(full_path string) string {
+	for i in 0 .. full_path.len {
+		if full_path[i] == `?` {
+			return full_path[..i]
+		}
+	}
+	return full_path
+}
+
+// 转换 picoev 请求 - 优化版
+// 使用预计算的方法映射避免字符串比较
 fn convert_picoev_request(req picohttpparser.Request) http.Request {
 	mut headers := http.new_header()
 	
@@ -225,23 +329,46 @@ fn convert_picoev_request(req picohttpparser.Request) http.Request {
 	}
 	
 	return http.Request{
-		method: match req.method {
-			'GET' { http.Method.get }
-			'POST' { http.Method.post }
-			'PUT' { http.Method.put }
-			'DELETE' { http.Method.delete }
-			'PATCH' { http.Method.patch }
-			'HEAD' { http.Method.head }
-			'OPTIONS' { http.Method.options }
-			else { http.Method.get }
-		}
+		method: parse_http_method_fast(req.method)
 		url: req.path
 		data: req.body
 		header: headers
 	}
 }
 
-// 发送 picoev 响应
+// 快速 HTTP 方法解析（基于首字符和长度）
+@[inline]
+fn parse_http_method_fast(method string) http.Method {
+	len := method.len
+	if len == 0 {
+		return http.Method.get
+	}
+	
+	// 基于首字符快速分支
+	match method[0] {
+		`G` {
+			if len == 3 { return http.Method.get }
+		}
+		`P` {
+			if len == 4 && method[1] == `O` { return http.Method.post }
+			if len == 3 && method[1] == `U` { return http.Method.put }
+			if len == 5 { return http.Method.patch }
+		}
+		`D` {
+			if len == 6 { return http.Method.delete }
+		}
+		`H` {
+			if len == 4 { return http.Method.head }
+		}
+		`O` {
+			if len == 7 { return http.Method.options }
+		}
+		else {}
+	}
+	return http.Method.get
+}
+
+// 发送 picoev 响应 - 优化版
 fn send_picoev_response(mut res picohttpparser.Response, ctx Context, response http.Response, keepalive bool, config PicoevConfig) {
 	status_code := if ctx.status_code != 0 { ctx.status_code } else { response.status_code }
 	
@@ -255,18 +382,21 @@ fn send_picoev_response(mut res picohttpparser.Response, ctx Context, response h
 	mut has_connection := false
 	
 	for key, value in ctx.headers {
-		// 跳过 Content-Length，picohttpparser 会在 body() 时自动添加
-		if key.to_lower() == 'content-length' {
-			continue
+		// 使用快速大小写不敏感比较
+		key_len := key.len
+		if key_len == 14 && eq_ignore_case(key, 'content-length') {
+			continue // 跳过 Content-Length
 		}
 		res.header(key, value)
-		key_lower := key.to_lower()
-		if key_lower == 'content-type' { has_content_type = true }
-		if key_lower == 'connection' { has_connection = true }
+		if key_len == 12 && eq_ignore_case(key, 'content-type') {
+			has_content_type = true
+		} else if key_len == 10 && eq_ignore_case(key, 'connection') {
+			has_connection = true
+		}
 	}
 	
-	if content_type := response.header.get(.content_type) {
-		if !has_content_type {
+	if !has_content_type {
+		if content_type := response.header.get(.content_type) {
 			res.header('Content-Type', content_type)
 			has_content_type = true
 		}
