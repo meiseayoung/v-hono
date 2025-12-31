@@ -2,27 +2,19 @@
 
 Performance benchmarks for V-Hono web framework.
 
-## Backend Comparison
+## Framework Comparison (500 connections, 100K requests)
 
-### uSockets vs Picoev (200 connections, 100K requests)
+| Framework | RPS | Errors | Avg Latency | P50 | P95 | P99 |
+|-----------|-----|--------|-------------|-----|-----|-----|
+| **v-hono (uSockets)** | **20,231** | **0** | **24.62ms** | **23.65ms** | **33.82ms** | **57.29ms** |
+| v-hono (picoev) | 16,177 | 0 | 30.75ms | 26.25ms | 35.37ms | 111.38ms |
+| veb (V官方) | 7,278 | 772 | 68.06ms | 55.79ms | 71.62ms | 98.90ms |
 
-| Backend | RPS | Avg Latency | P95 | P99 |
-|---------|-----|-------------|-----|-----|
-| uSockets | ~22,000 | 8.75ms | 16.66ms | 25.73ms |
-| picoev | ~15,000 | 13.36ms | 18.89ms | 31.66ms |
+### Performance Summary
 
-**uSockets provides ~50% higher throughput under high concurrency.**
-
-### High Concurrency Test (500 connections, 100K requests)
-
-| Metric | uSockets |
-|--------|----------|
-| RPS | ~20,000 |
-| Errors | 0 |
-| Avg Latency | 25.04ms |
-| P50 | 24.32ms |
-| P95 | 32.97ms |
-| P99 | 64.59ms |
+- **v-hono (uSockets) vs veb**: **2.78x faster**, zero errors
+- **v-hono (uSockets) vs picoev**: **25% faster**, better P99 latency
+- **v-hono (picoev) vs veb**: **2.22x faster**, zero errors
 
 ## Running Benchmarks
 
