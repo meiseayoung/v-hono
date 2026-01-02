@@ -91,7 +91,7 @@ The uSockets library and libuv are pre-compiled and included in the `usockets/li
 ### Using uSockets Backend
 
 ```v
-import hono
+import meiseayoung.hono
 
 fn main() {
     mut app := hono.Hono.new()
@@ -114,7 +114,7 @@ See [benchmark/README.md](benchmark/README.md) for performance benchmarks and [u
 
 ```v
 import net.http
-import hono
+import meiseayoung.hono
 
 fn main() {
     mut app := hono.Hono.new()
@@ -146,7 +146,7 @@ fn main() {
 ```v
 import net.http
 import time
-import hono
+import meiseayoung.hono
 
 fn main() {
     mut app := hono.Hono.new()
@@ -172,7 +172,7 @@ fn main() {
 
 ```v
 import net.http
-import hono
+import meiseayoung.hono
 
 fn main() {
     mut app := hono.Hono.new()
@@ -200,7 +200,7 @@ fn main() {
 
 ```v
 import net.http
-import hono
+import meiseayoung.hono
 
 fn main() {
     mut app := hono.Hono.new()

@@ -1,4 +1,4 @@
-import hono
+import meiseayoung.hono
 import net.http
 
 // 重定向功能测试

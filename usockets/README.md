@@ -16,7 +16,7 @@ Based on benchmark tests (200 connections, 100K requests):
 ## Usage
 
 ```v
-import hono
+import meiseayoung.hono
 
 fn main() {
     mut app := hono.Hono.new()
@@ -74,7 +74,7 @@ usockets/
 
 ```v
 // Custom configuration
-app.listen_usockets_with_config(hono.UsocketsConfig{
+app.listen_usockets_with_config(meiseayoung.hono.UsocketsConfig{
     port: 8080
     host: '0.0.0.0'
     keepalive_timeout: 30

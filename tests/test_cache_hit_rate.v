@@ -1,7 +1,7 @@
 // 测试缓存命中率
 module main
 
-import hono
+import meiseayoung.hono
 import net.http
 import time
 

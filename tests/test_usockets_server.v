@@ -2,7 +2,7 @@
 module main
 
 import net.http
-import hono
+import meiseayoung.hono
 
 fn main() {
 	mut app := hono.Hono.new()

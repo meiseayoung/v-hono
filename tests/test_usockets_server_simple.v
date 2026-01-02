@@ -1,7 +1,7 @@
 // uSockets 简化测试服务器 - 与外层 main.v 配置一致
 module main
 
-import hono
+import meiseayoung.hono
 import net.http
 import x.json2
 

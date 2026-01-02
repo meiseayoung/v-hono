@@ -7,7 +7,7 @@
 
 module main
 
-import hono
+import meiseayoung.hono
 import net.http
 
 fn main() {

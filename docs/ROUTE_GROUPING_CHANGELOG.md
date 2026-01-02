@@ -11,7 +11,7 @@
 #### 使用方式
 
 ```v
-import hono
+import meiseayoung.hono
 
 fn main() {
     mut app := hono.Hono.new()

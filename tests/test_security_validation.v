@@ -1,4 +1,4 @@
-import hono
+import meiseayoung.hono
 
 fn main() {
 	println('=== 测试输入验证和路径安全 ===')

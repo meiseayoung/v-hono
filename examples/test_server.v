@@ -1,7 +1,7 @@
 // 测试服务器 - 用于高并发测试
 module main
 
-import hono
+import meiseayoung.hono
 import net.http
 
 fn main() {

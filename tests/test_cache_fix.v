@@ -1,4 +1,4 @@
-import hono
+import meiseayoung.hono
 
 fn main() {
 	println('=== 测试缓存内存泄漏修复 ===')

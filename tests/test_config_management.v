@@ -1,4 +1,4 @@
-import hono
+import meiseayoung.hono
 import os
 
 fn test_default_config() {

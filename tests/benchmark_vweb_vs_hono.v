@@ -4,7 +4,7 @@
 module main
 
 import time
-import hono
+import meiseayoung.hono
 import net.http
 
 // ============================================

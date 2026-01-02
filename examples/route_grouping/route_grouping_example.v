@@ -12,7 +12,7 @@
 // ```
 
 import net.http
-import hono
+import meiseayoung.hono
 
 fn main() {
 	println('🚀 V-Hono 路由分组示例启动中...')

@@ -2,7 +2,7 @@
 // 验证高性能缓存的正确性和性能
 module main
 
-import hono
+import meiseayoung.hono
 import net.http
 import time
 

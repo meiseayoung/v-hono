@@ -3,7 +3,7 @@
 module main
 
 import time
-import hono
+import meiseayoung.hono
 import net.http
 
 const iterations = 100_000

@@ -2,7 +2,7 @@
 // 演示新功能：子应用中间件继承、all() 方法、notFound/onError 处理器
 
 import net.http
-import hono
+import meiseayoung.hono
 
 fn main() {
 	println('🚀 V-Hono 路由分组增强示例启动中...')
