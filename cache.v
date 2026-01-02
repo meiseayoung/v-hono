@@ -336,3 +336,71 @@ pub fn (mut cache ContextLRUCache) clear() {
 	cache.size = 0
 	cache.last_cleanup = time.now().unix()
 }
+
+
+// ============================================================================
+// 高性能路由缓存 - 专为路由匹配优化
+// ============================================================================
+// 特点：
+// 1. 无 TTL 检查（路由不会过期）
+// 2. 无 LRU 移动（简单 map 查找）
+// 3. 固定大小，满了就清空重建
+// 4. 零开销的 get 操作
+
+pub struct FastRouteCache {
+mut:
+	cache    map[string]ContextRouteMatch
+	capacity int
+	enabled  bool = true
+}
+
+pub fn FastRouteCache.new(capacity int) FastRouteCache {
+	return FastRouteCache{
+		cache: map[string]ContextRouteMatch{}
+		capacity: capacity
+		enabled: true
+	}
+}
+
+// 快速获取 - 零开销
+@[inline]
+pub fn (cache &FastRouteCache) get(key string) ?ContextRouteMatch {
+	if !cache.enabled {
+		return none
+	}
+	if result := cache.cache[key] {
+		return result
+	}
+	return none
+}
+
+// 快速设置
+@[inline]
+pub fn (mut cache FastRouteCache) put(key string, value ContextRouteMatch) {
+	if !cache.enabled {
+		return
+	}
+	// 如果满了，清空重建（比 LRU 淘汰更快）
+	if cache.cache.len >= cache.capacity {
+		cache.cache.clear()
+	}
+	cache.cache[key] = value
+}
+
+// 获取统计
+pub fn (cache &FastRouteCache) get_stats() (int, int) {
+	return cache.cache.len, cache.capacity
+}
+
+// 清空缓存
+pub fn (mut cache FastRouteCache) clear() {
+	cache.cache.clear()
+}
+
+// 启用/禁用
+pub fn (mut cache FastRouteCache) set_enabled(enabled bool) {
+	cache.enabled = enabled
+	if !enabled {
+		cache.clear()
+	}
+}
