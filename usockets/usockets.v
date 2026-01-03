@@ -105,6 +105,8 @@ pub fn (ctx SocketContext) on_writable(h voidptr) { C.us_socket_context_on_writa
 pub fn (ctx SocketContext) on_timeout(h voidptr) { C.us_socket_context_on_timeout(0, ctx, h) }
 pub fn (ctx SocketContext) on_end(h voidptr) { C.us_socket_context_on_end(0, ctx, h) }
 pub fn (ctx SocketContext) listen(port int) ListenSocket {
+	// 参数: ssl=0, context, host=nil, port, options=LIBUS_LISTEN_DEFAULT(0), socket_ext_size=0
+	// 注意: backlog 是在 uSockets 库内部硬编码的，不通过此函数传递
 	return C.us_socket_context_listen(0, ctx, unsafe { nil }, port, 0, 0)
 }
 

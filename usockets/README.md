@@ -2,6 +2,31 @@
 
 High-performance server backend using [uSockets](https://github.com/uNetworking/uSockets) library.
 
+## High Concurrency Performance
+
+The included `libusockets_full.a` has been optimized with **backlog=16384** to support high concurrency:
+
+| Concurrent | RPS | Success Rate |
+|------------|-----|--------------|
+| 4,000 | 112,614 | 100% |
+| 6,000 | 56,728 | 100% |
+| 8,000 | 33,255 | 100% |
+| 10,000 | 25,964 | 100% |
+
+### System Requirements
+
+For 10,000+ concurrent connections:
+
+```bash
+# macOS
+sudo sysctl -w kern.ipc.somaxconn=8192
+ulimit -n 65535
+
+# Linux
+sudo sysctl -w net.core.somaxconn=8192
+ulimit -n 65535
+```
+
 ## Performance
 
 Based on benchmark tests (200 connections, 100K requests):

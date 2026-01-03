@@ -110,6 +110,35 @@ fn main() {
 
 See [benchmark/README.md](benchmark/README.md) for performance benchmarks and [usockets/README.md](usockets/README.md) for uSockets integration details.
 
+## High Concurrency Support
+
+v-hono with uSockets backend supports **10,000+ concurrent connections** out of the box.
+
+### Performance Results
+
+| Concurrent | RPS | Avg Latency | P99 Latency | Success Rate |
+|------------|-----|-------------|-------------|--------------|
+| 5,000 | 81,524 | 60.77ms | 295.17ms | 100% |
+| 6,000 | 56,290 | 98.46ms | 557.47ms | 100% |
+| 7,000 | 42,895 | 130.04ms | 824.80ms | 100% |
+| 8,000 | 30,537 | 165.27ms | 1058.05ms | 100% |
+| 9,000 | 28,693 | 215.86ms | 1422.67ms | 100% |
+| 10,000 | 24,198 | 240.90ms | 1602.10ms | 100% |
+
+### System Configuration (macOS)
+
+For optimal high-concurrency performance:
+
+```bash
+# Increase socket backlog limit
+sudo sysctl -w kern.ipc.somaxconn=8192
+
+# Increase file descriptor limit
+ulimit -n 65535
+```
+
+See [docs/HIGH_CONCURRENCY.md](docs/HIGH_CONCURRENCY.md) for detailed optimization guide.
+
 ## Quick Start
 
 ```v
