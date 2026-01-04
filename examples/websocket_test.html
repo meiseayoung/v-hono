@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>v-hono WebSocket Demo</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { 
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        .container { max-width: 900px; margin: 0 auto; }
+        h1 { 
+            color: white; 
+            text-align: center; 
+            margin-bottom: 20px;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.2);
+        }
+        .card {
+            background: white;
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 20px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+        }
+        .card h2 { 
+            color: #333; 
+            margin-bottom: 15px;
+            padding-bottom: 10px;
+            border-bottom: 2px solid #667eea;
+        }
+        .form-group { margin-bottom: 15px; }
+        label { 
+            display: block; 
+            margin-bottom: 5px; 
+            font-weight: 600;
+            color: #555;
+        }
+        input, select {
+            width: 100%;
+            padding: 10px 15px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: 14px;
+            transition: border-color 0.3s;
+        }
+        input:focus, select:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+        .btn-group { display: flex; gap: 10px; flex-wrap: wrap; }
+        button {
+            padding: 12px 24px;
+            border: none;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+        button:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(0,0,0,0.15); }
+        button:active { transform: translateY(0); }
+        .btn-connect { background: #667eea; color: white; }
+        .btn-disconnect { background: #e74c3c; color: white; }
+        .btn-send { background: #27ae60; color: white; }
+        .btn-clear { background: #95a5a6; color: white; }
+        .status {
+            display: inline-block;
+            padding: 6px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 600;
+            margin-left: 10px;
+        }
+        .status-disconnected { background: #fee2e2; color: #dc2626; }
+        .status-connecting { background: #fef3c7; color: #d97706; }
+        .status-connected { background: #d1fae5; color: #059669; }
+        #messages {
+            height: 300px;
+            overflow-y: auto;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            padding: 15px;
+            background: #f8f9fa;
+            font-family: "Monaco", "Menlo", monospace;
+            font-size: 13px;
+        }
+        .message {
+            padding: 8px 12px;
+            margin-bottom: 8px;
+            border-radius: 6px;
+            animation: fadeIn 0.3s ease;
+        }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(-10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .message-sent { background: #e3f2fd; border-left: 4px solid #2196f3; }
+        .message-received { background: #e8f5e9; border-left: 4px solid #4caf50; }
+        .message-system { background: #fff3e0; border-left: 4px solid #ff9800; }
+        .message-error { background: #ffebee; border-left: 4px solid #f44336; }
+        .message-time { color: #999; font-size: 11px; }
+        .endpoints {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 10px;
+            margin-top: 15px;
+        }
+        .endpoint {
+            padding: 10px;
+            background: #f0f4ff;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        .endpoint:hover { background: #e0e7ff; }
+        .endpoint code { 
+            display: block;
+            font-size: 12px;
+            color: #667eea;
+            margin-top: 5px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔌 v-hono WebSocket Demo</h1>
+        
+        <div class="card">
+            <h2>Connection <span id="status" class="status status-disconnected">Disconnected</span></h2>
+            
+            <div class="form-group">
+                <label>WebSocket URL</label>
+                <input type="text" id="wsUrl" value="ws://127.0.0.1:3000/ws/echo" placeholder="ws://...">
+            </div>
+            
+            <div class="form-group">
+                <label>Quick Connect</label>
+                <div class="endpoints">
+                    <div class="endpoint" onclick="setUrl('ws://127.0.0.1:3000/ws/echo')">
+                        <strong>Echo Server</strong>
+                        <code>/ws/echo</code>
+                    </div>
+                    <div class="endpoint" onclick="setUrl('ws://127.0.0.1:3000/ws/chat/general?username=guest')">
+                        <strong>Chat Room</strong>
+                        <code>/ws/chat/:room</code>
+                    </div>
+                    <div class="endpoint" onclick="setUrl('ws://127.0.0.1:3000/ws/configured')">
+                        <strong>Configured</strong>
+                        <code>/ws/configured</code>
+                    </div>
+                    <div class="endpoint" onclick="setUrl('ws://127.0.0.1:3000/ws/protocol')">
+                        <strong>Protocol</strong>
+                        <code>/ws/protocol</code>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="btn-group">
+                <button class="btn-connect" onclick="connect()">Connect</button>
+                <button class="btn-disconnect" onclick="disconnect()">Disconnect</button>
+            </div>
+        </div>
+        
+        <div class="card">
+            <h2>Send Message</h2>
+            <div class="form-group">
+                <label>Message</label>
+                <input type="text" id="message" placeholder="Type your message..." onkeypress="if(event.key==='Enter')sendMessage()">
+            </div>
+            <div class="btn-group">
+                <button class="btn-send" onclick="sendMessage()">Send Text</button>
+                <button class="btn-send" onclick="sendJson()">Send JSON</button>
+            </div>
+        </div>
+        
+        <div class="card">
+            <h2>Messages <button class="btn-clear" onclick="clearMessages()" style="float:right;padding:6px 12px;">Clear</button></h2>
+            <div id="messages"></div>
+        </div>
+    </div>
+    
+    <script>
+        let ws = null;
+        
+        function setUrl(url) {
+            document.getElementById('wsUrl').value = url;
+        }
+        
+        function updateStatus(status) {
+            const el = document.getElementById('status');
+            el.textContent = status;
+            el.className = 'status status-' + status.toLowerCase();
+        }
+        
+        function addMessage(type, text) {
+            const messages = document.getElementById('messages');
+            const time = new Date().toLocaleTimeString();
+            const div = document.createElement('div');
+            div.className = 'message message-' + type;
+            div.innerHTML = '<span class="message-time">[' + time + ']</span> ' + text;
+            messages.appendChild(div);
+            messages.scrollTop = messages.scrollHeight;
+        }
+        
+        function connect() {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                addMessage('system', 'Already connected!');
+                return;
+            }
+            
+            const url = document.getElementById('wsUrl').value;
+            updateStatus('Connecting');
+            addMessage('system', 'Connecting to ' + url + '...');
+            
+            try {
+                ws = new WebSocket(url);
+                
+                ws.onopen = function() {
+                    updateStatus('Connected');
+                    addMessage('system', 'Connected successfully!');
+                };
+                
+                ws.onmessage = function(event) {
+                    addMessage('received', event.data);
+                };
+                
+                ws.onclose = function(event) {
+                    updateStatus('Disconnected');
+                    addMessage('system', 'Disconnected (code: ' + event.code + ', reason: ' + (event.reason || 'none') + ')');
+                    ws = null;
+                };
+                
+                ws.onerror = function(error) {
+                    addMessage('error', 'WebSocket error occurred');
+                };
+            } catch (e) {
+                addMessage('error', 'Failed to connect: ' + e.message);
+                updateStatus('Disconnected');
+            }
+        }
+        
+        function disconnect() {
+            if (ws) {
+                ws.close(1000, 'User requested disconnect');
+                addMessage('system', 'Disconnecting...');
+            } else {
+                addMessage('system', 'Not connected');
+            }
+        }
+        
+        function sendMessage() {
+            const input = document.getElementById('message');
+            const text = input.value.trim();
+            
+            if (!text) {
+                addMessage('error', 'Please enter a message');
+                return;
+            }
+            
+            if (!ws || ws.readyState !== WebSocket.OPEN) {
+                addMessage('error', 'Not connected!');
+                return;
+            }
+            
+            ws.send(text);
+            addMessage('sent', text);
+            input.value = '';
+        }
+        
+        function sendJson() {
+            const input = document.getElementById('message');
+            const text = input.value.trim() || 'Hello';
+            
+            if (!ws || ws.readyState !== WebSocket.OPEN) {
+                addMessage('error', 'Not connected!');
+                return;
+            }
+            
+            const json = JSON.stringify({ type: 'message', content: text, timestamp: Date.now() });
+            ws.send(json);
+            addMessage('sent', json);
+            input.value = '';
+        }
+        
+        function clearMessages() {
+            document.getElementById('messages').innerHTML = '';
+        }
+    </script>
+</body>
+</html>

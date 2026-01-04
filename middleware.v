@@ -11,7 +11,7 @@ import rand
 // 中间件导出说明
 // ============================================================================
 //
-// 本框架提供以下 7 个内置中间件：
+// 本框架提供以下 8 个内置中间件：
 //
 // 1. CORS 中间件 (cors.v)
 //    - cors(options ...CorsOptions) ContextMiddleware
@@ -58,6 +58,29 @@ import rand
 //    - get_validated_data(c Context) map[string]string
 //    - get_validated_json(c Context) ?string
 //    - get_validated_field(c Context, field string) ?string
+//
+// 8. WebSocket Helper (websocket.v)
+//    - upgrade_websocket(factory WSHandlerFactory, options ...WebSocketOptions) fn (mut Context) http.Response
+//    - 用于处理 WebSocket 连接升级和事件处理
+//
+//    Types:
+//    - WebSocketOptions: 配置选项 (ping_interval, max_message_size, timeout, protocols)
+//    - WSReadyState: 连接状态枚举 (connecting, open, closing, closed)
+//    - WSMessageEvent: 消息事件结构
+//    - WSCloseEvent: 关闭事件结构
+//    - WSContext: WebSocket 上下文，提供 send/send_bytes/send_json/close 方法
+//    - WSEvents: 事件处理器配置 (on_open, on_message, on_close, on_error)
+//    - WSHandlerFactory: 处理器工厂函数类型
+//
+//    Constants:
+//    - ws_opcode_text, ws_opcode_binary, ws_opcode_close, ws_opcode_ping, ws_opcode_pong
+//    - ws_close_normal, ws_close_going_away, ws_close_protocol_error, etc.
+//
+//    Helper Functions:
+//    - is_websocket_upgrade(c Context) bool: 检查是否为 WebSocket 升级请求
+//    - compute_accept_key(key string) string: 计算 Sec-WebSocket-Accept
+//    - encode_ws_frame(opcode u8, payload []u8, masked bool) []u8: 编码 WebSocket 帧
+//    - decode_ws_frame(data []u8) !WSFrame: 解码 WebSocket 帧
 //
 // ============================================================================
 
@@ -270,3 +293,85 @@ pub fn timing() ContextMiddleware {
 	}
 }
 
+
+// ============================================================================
+// WebSocket Helper 导出
+// ============================================================================
+//
+// WebSocket Helper 提供服务端 WebSocket 支持，实现 RFC 6455 协议。
+// 主要功能通过 websocket.v 文件导出，包括：
+//
+// 核心函数:
+//   - upgrade_websocket(factory, options...) - 创建 WebSocket 升级处理器
+//   - is_websocket_upgrade(c) - 检查是否为 WebSocket 升级请求
+//
+// 类型定义:
+//   - WebSocketOptions - 配置选项
+//   - WSReadyState - 连接状态枚举
+//   - WSMessageEvent - 消息事件
+//   - WSCloseEvent - 关闭事件
+//   - WSContext - WebSocket 上下文
+//   - WSEvents - 事件处理器配置
+//   - WSHandlerFactory - 处理器工厂类型
+//
+// 常量:
+//   - ws_opcode_* - WebSocket 操作码
+//   - ws_close_* - WebSocket 关闭状态码
+//
+// 帧处理函数:
+//   - encode_ws_frame() - 编码 WebSocket 帧
+//   - decode_ws_frame() - 解码 WebSocket 帧
+//   - compute_accept_key() - 计算握手响应密钥
+//
+// 使用示例:
+//   app.get('/ws', hono.upgrade_websocket(fn (c hono.Context) hono.WSEvents {
+//       return hono.WSEvents{
+//           on_open: fn (mut ws hono.WSContext) {
+//               ws.send('Welcome!') or {}
+//           }
+//           on_message: fn (event hono.WSMessageEvent, mut ws hono.WSContext) {
+//               ws.send('Echo: ${event.data}') or {}
+//           }
+//           on_close: fn (event hono.WSCloseEvent, mut ws hono.WSContext) {
+//               println('Closed: ${event.code}')
+//           }
+//       }
+//   }))
+//
+// 带配置选项:
+//   app.get('/ws', hono.upgrade_websocket(factory, hono.WebSocketOptions{
+//       ping_interval: 30000      // 30秒 ping 间隔
+//       max_message_size: 1048576 // 1MB 最大消息大小
+//       timeout: 60000            // 60秒超时
+//       protocols: ['chat', 'json'] // 支持的子协议
+//   }))
+// ============================================================================
+
+// websocket - WebSocket 升级处理器的别名函数
+// 使用示例:
+//   app.get('/ws', hono.websocket(fn (c hono.Context) hono.WSEvents {
+//       return hono.WSEvents{
+//           on_message: fn (event hono.WSMessageEvent, mut ws hono.WSContext) {
+//               ws.send('Echo: ${event.data}') or {}
+//           }
+//       }
+//   }))
+pub fn websocket(factory WSHandlerFactory, options ...WebSocketOptions) fn (mut Context) http.Response {
+	return upgrade_websocket(factory, ...options)
+}
+
+// ws - WebSocket 升级处理器的简短别名
+// 使用示例:
+//   app.get('/ws', hono.ws(handler_factory))
+pub fn ws(factory WSHandlerFactory, options ...WebSocketOptions) fn (mut Context) http.Response {
+	return upgrade_websocket(factory, ...options)
+}
+
+// is_ws_upgrade - 检查请求是否为 WebSocket 升级请求的别名
+// 使用示例:
+//   if hono.is_ws_upgrade(c) {
+//       // Handle WebSocket upgrade
+//   }
+pub fn is_ws_upgrade(c Context) bool {
+	return is_websocket_upgrade(c)
+}

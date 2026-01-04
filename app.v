@@ -175,6 +175,35 @@ pub fn (mut app Hono) options(path string, handler fn (mut Context) http.Respons
 	app.context_trie_router.add_route('OPTIONS', path, h)
 }
 
+// ws() - Register a WebSocket route
+// This method registers a WebSocket upgrade handler at the specified path.
+// The factory function receives the HTTP Context and returns WSEvents configuration.
+//
+// Parameters:
+//   path: The route path (supports path parameters like /ws/:room/:id)
+//   factory: A function that receives the HTTP Context and returns WSEvents
+//   options: Optional WebSocket configuration
+//
+// Example:
+//   app.ws('/chat/:room', fn (c Context) WSEvents {
+//       room := c.params['room'] or { 'default' }
+//       return WSEvents{
+//           on_open: fn (mut ws WSContext) {
+//               ws.send('Welcome to room!') or {}
+//           }
+//           on_message: fn (event WSMessageEvent, mut ws WSContext) {
+//               ws.send('Echo: ${event.data}') or {}
+//           }
+//       }
+//   })
+pub fn (mut app Hono) ws(path string, factory WSHandlerFactory, options ...WebSocketOptions) {
+	// Create the WebSocket upgrade handler
+	ws_handler := upgrade_websocket(factory, ...options)
+	
+	// Register as a GET route (WebSocket upgrades use GET method)
+	app.get(path, ws_handler)
+}
+
 // all() 方法 - 为所有 HTTP 方法注册同一个处理器
 pub fn (mut app Hono) all(path string, handler fn (mut Context) http.Response) {
 	app.get(path, handler)

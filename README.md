@@ -9,15 +9,16 @@ A high-performance V language web framework inspired by [Hono.js](https://hono.d
 - 🔧 **Middleware Support** - Flexible middleware system with onion model
 - 🌐 **CORS** - Built-in CORS middleware with full configuration
 - 🍪 **Cookie Helper** - Easy cookie management with signed cookie support
-- � **JWTe Authentication** - JWT middleware with HS256/384/512 support
+- 🔐 **JWT Authentication** - JWT middleware with HS256/384/512 support
 - 🎫 **Bearer Auth** - Simple Bearer token authentication
-- � **Cotmpression** - Gzip and deflate response compression
+- 📦 **Compression** - Gzip and deflate response compression
 - ⏱️ **Rate Limiting** - Request rate limiting with customizable stores
 - ✅ **Validation** - Schema-based request validation
 - 📁 **Static File Serving** - Built-in static file server with caching
 - 🛡️ **Security** - Path validation and security utilities
 - 📤 **File Upload** - Chunked file upload support
 - 🗄️ **Database** - SQLite integration for data persistence
+- 🔌 **WebSocket** - RFC 6455 compliant WebSocket support with event-based API
 
 ## Installation
 
@@ -620,6 +621,169 @@ fn main() {
 }
 ```
 
+### 8. WebSocket Helper
+
+RFC 6455 compliant WebSocket support for real-time bidirectional communication.
+
+```v
+import meiseayoung.hono
+
+fn main() {
+    mut app := hono.Hono.new()
+
+    // Basic WebSocket endpoint
+    app.get('/ws', hono.upgrade_websocket(fn (c hono.Context) hono.WSEvents {
+        return hono.WSEvents{
+            on_open: fn (mut ws hono.WSContext) {
+                println('Client connected')
+                ws.send('Welcome to the WebSocket server!') or {}
+            }
+            on_message: fn (event hono.WSMessageEvent, mut ws hono.WSContext) {
+                println('Received: ${event.data}')
+                // Echo the message back
+                ws.send('Echo: ${event.data}') or {}
+            }
+            on_close: fn (event hono.WSCloseEvent, mut ws hono.WSContext) {
+                println('Client disconnected: ${event.code} - ${event.reason}')
+            }
+            on_error: fn (error string, mut ws hono.WSContext) {
+                println('WebSocket error: ${error}')
+            }
+        }
+    }))
+
+    app.listen(':3000')
+}
+```
+
+#### WebSocket with Configuration Options
+
+```v
+import meiseayoung.hono
+
+fn main() {
+    mut app := hono.Hono.new()
+
+    // WebSocket with custom options
+    app.get('/ws/chat', hono.upgrade_websocket(
+        fn (c hono.Context) hono.WSEvents {
+            return hono.WSEvents{
+                on_message: fn (event hono.WSMessageEvent, mut ws hono.WSContext) {
+                    ws.send('Received: ${event.data}') or {}
+                }
+            }
+        },
+        hono.WebSocketOptions{
+            ping_interval: 30000      // Send ping every 30 seconds
+            max_message_size: 1048576 // Max 1MB message size
+            timeout: 60000            // 60 second timeout
+            protocols: ['chat', 'json'] // Supported subprotocols
+        }
+    ))
+
+    app.listen(':3000')
+}
+```
+
+#### WebSocket with Route Parameters
+
+```v
+import meiseayoung.hono
+
+fn main() {
+    mut app := hono.Hono.new()
+
+    // WebSocket with route parameters
+    app.get('/ws/room/:room_id', hono.upgrade_websocket(fn (c hono.Context) hono.WSEvents {
+        // Access route parameters from HTTP context
+        room_id := c.params['room_id'] or { 'default' }
+        
+        return hono.WSEvents{
+            on_open: fn [room_id] (mut ws hono.WSContext) {
+                ws.send('Joined room: ${room_id}') or {}
+            }
+            on_message: fn [room_id] (event hono.WSMessageEvent, mut ws hono.WSContext) {
+                ws.send('[${room_id}] ${event.data}') or {}
+            }
+        }
+    }))
+
+    app.listen(':3000')
+}
+```
+
+#### Sending Different Message Types
+
+```v
+import meiseayoung.hono
+
+fn main() {
+    mut app := hono.Hono.new()
+
+    app.get('/ws', hono.upgrade_websocket(fn (c hono.Context) hono.WSEvents {
+        return hono.WSEvents{
+            on_message: fn (event hono.WSMessageEvent, mut ws hono.WSContext) {
+                // Send text message
+                ws.send('Hello, World!') or {}
+                
+                // Send binary data
+                ws.send_bytes([u8(0x01), 0x02, 0x03]) or {}
+                
+                // Send JSON data
+                ws.send_json('{"type": "message", "content": "Hello"}') or {}
+                
+                // Close connection gracefully
+                // ws.close(1000, 'Normal closure') or {}
+            }
+        }
+    }))
+
+    app.listen(':3000')
+}
+```
+
+#### WebSocket Configuration Options
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `ping_interval` | `int` | `30000` | Ping interval in milliseconds (0 to disable) |
+| `max_message_size` | `int` | `1048576` | Maximum message size in bytes (1MB) |
+| `timeout` | `int` | `60000` | Connection timeout in milliseconds |
+| `protocols` | `[]string` | `[]` | Supported WebSocket subprotocols |
+
+#### WSContext Methods
+
+| Method | Description |
+|--------|-------------|
+| `send(data string)` | Send text message |
+| `send_bytes(data []u8)` | Send binary message |
+| `send_json(data string)` | Send JSON data as text frame |
+| `close(code int, reason string)` | Initiate graceful close |
+| `get_context()` | Get original HTTP context |
+
+#### WSContext Properties
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `ready_state` | `WSReadyState` | Connection state (connecting, open, closing, closed) |
+| `protocol` | `string` | Negotiated subprotocol |
+| `params` | `map[string]string` | Route parameters |
+| `query` | `map[string]string` | Query parameters |
+| `store` | `map[string]string` | Middleware store values |
+
+#### WebSocket Close Codes
+
+| Code | Constant | Description |
+|------|----------|-------------|
+| 1000 | `ws_close_normal` | Normal closure |
+| 1001 | `ws_close_going_away` | Server shutting down |
+| 1002 | `ws_close_protocol_error` | Protocol error |
+| 1003 | `ws_close_unsupported_data` | Unsupported data type |
+| 1007 | `ws_close_invalid_payload` | Invalid payload data |
+| 1008 | `ws_close_policy_violation` | Policy violation |
+| 1009 | `ws_close_message_too_big` | Message too big |
+| 1011 | `ws_close_internal_error` | Internal server error |
+
 ## Route Grouping
 
 ```v
@@ -724,6 +888,9 @@ v-hono/
 ├── compress.v         # Compression middleware
 ├── rate_limit.v       # Rate limiting middleware
 ├── validator.v        # Request validation
+├── websocket.v        # WebSocket helper (RFC 6455)
+├── picoev_server.v    # Picoev backend with WebSocket support
+├── usockets_server.v  # uSockets backend with WebSocket support
 ├── v.mod              # Module definition
 ├── README.md          # Documentation
 ├── examples/          # Example applications

@@ -61,6 +61,135 @@ pub fn (mut app Hono) listen_picoev_with_config(config PicoevConfig) {
 	pico.serve()
 }
 
+// ============================================================================
+// WebSocket Upgrade Detection and Handling
+// ============================================================================
+
+// Check if a picoev request is a WebSocket upgrade request
+fn is_picoev_ws_upgrade(req picohttpparser.Request) bool {
+	mut has_upgrade := false
+	mut has_connection := false
+	mut has_ws_key := false
+	
+	for i in 0 .. req.num_headers {
+		h := req.headers[i]
+		name_lower := h.name.to_lower()
+		
+		if name_lower == 'upgrade' {
+			if h.value.to_lower() == 'websocket' {
+				has_upgrade = true
+			}
+		} else if name_lower == 'connection' {
+			if contains_ignore_case(h.value, 'upgrade') {
+				has_connection = true
+			}
+		} else if name_lower == 'sec-websocket-key' {
+			if h.value.len > 0 {
+				has_ws_key = true
+			}
+		}
+	}
+	
+	return has_upgrade && has_connection && has_ws_key
+}
+
+// Get WebSocket key from picoev request headers
+fn get_picoev_ws_key(req picohttpparser.Request) string {
+	for i in 0 .. req.num_headers {
+		h := req.headers[i]
+		if eq_ignore_case(h.name, 'sec-websocket-key') {
+			return h.value
+		}
+	}
+	return ''
+}
+
+// Get WebSocket protocol from picoev request headers
+fn get_picoev_ws_protocol(req picohttpparser.Request) string {
+	for i in 0 .. req.num_headers {
+		h := req.headers[i]
+		if eq_ignore_case(h.name, 'sec-websocket-protocol') {
+			return h.value
+		}
+	}
+	return ''
+}
+
+// Get WebSocket version from picoev request headers
+fn get_picoev_ws_version(req picohttpparser.Request) string {
+	for i in 0 .. req.num_headers {
+		h := req.headers[i]
+		if eq_ignore_case(h.name, 'sec-websocket-version') {
+			return h.value
+		}
+	}
+	return '13'
+}
+
+// Handle WebSocket upgrade for picoev
+fn handle_picoev_ws_upgrade(mut ctx PicoevRequestContext, req picohttpparser.Request, mut res picohttpparser.Response, route_match ContextRouteMatch, hono_ctx Context) bool {
+	// Validate WebSocket version
+	ws_version := get_picoev_ws_version(req)
+	if ws_version != '13' {
+		res.raw('HTTP/1.1 426 Upgrade Required\r\n')
+		res.header('Sec-WebSocket-Version', '13')
+		res.header('Content-Type', 'text/plain')
+		res.body('Unsupported WebSocket version')
+		res.end()
+		return false
+	}
+	
+	// Get WebSocket key
+	ws_key := get_picoev_ws_key(req)
+	if ws_key.len == 0 {
+		res.raw('HTTP/1.1 400 Bad Request\r\n')
+		res.header('Content-Type', 'text/plain')
+		res.body('Missing Sec-WebSocket-Key header')
+		res.end()
+		return false
+	}
+	
+	// Compute accept key
+	accept_key := compute_accept_key(ws_key)
+	
+	// Execute the route handler to get WSEvents
+	// The handler should return a 101 response with WebSocket context stored
+	mut mutable_ctx := hono_ctx
+	response := route_match.handler.handle(mut mutable_ctx)
+	
+	// Check if this is a WebSocket upgrade response
+	if response.status_code != 101 {
+		// Not a WebSocket upgrade, send the response as-is
+		send_picoev_response(mut res, mutable_ctx, response, false, ctx.config)
+		return false
+	}
+	
+	// Negotiate subprotocol
+	mut selected_protocol := ''
+	if '_ws_protocol' in mutable_ctx.store {
+		selected_protocol = mutable_ctx.store['_ws_protocol']
+	}
+	
+	// Send WebSocket handshake response
+	res.raw('HTTP/1.1 101 Switching Protocols\r\n')
+	res.header('Upgrade', 'websocket')
+	res.header('Connection', 'Upgrade')
+	res.header('Sec-WebSocket-Accept', accept_key)
+	if selected_protocol.len > 0 {
+		res.header('Sec-WebSocket-Protocol', selected_protocol)
+	}
+	res.body('')
+	res.end()
+	
+	return true
+}
+
+// Send WebSocket frame via picoev response
+fn send_ws_frame_picoev(data []u8) ! {
+	// This is a placeholder - actual implementation depends on picoev's raw socket access
+	// In practice, we need to write directly to the socket fd
+}
+
 // picoev 回调函数
 fn picoev_callback(user_data voidptr, req picohttpparser.Request, mut res picohttpparser.Response) {
 	mut ctx := unsafe { &PicoevRequestContext(user_data) }
@@ -75,10 +204,23 @@ fn picoev_callback(user_data voidptr, req picohttpparser.Request, mut res picoht
 	keepalive := check_keepalive_request(req)
 	method_str := req.method
 	
+	// Check if this is a WebSocket upgrade request
+	is_ws_upgrade := is_picoev_ws_upgrade(req)
+	
 	// 优先使用快速路由器
 	if ctx.app.use_fast_router {
 		if route_match := ctx.app.fast_router.match_route(method_str, path) {
 			mut hono_ctx := create_picoev_context(req, route_match.params, query_map)
+			
+			// Handle WebSocket upgrade if detected
+			if is_ws_upgrade {
+				if handle_picoev_ws_upgrade(mut ctx, req, mut res, route_match, hono_ctx) {
+					// WebSocket upgrade successful, connection is now in WebSocket mode
+					return
+				}
+				// If upgrade failed, response was already sent
+				return
+			}
 			
 			// 优化：零中间件快速路径
 			if !ctx.app.has_middlewares {
@@ -97,6 +239,15 @@ fn picoev_callback(user_data voidptr, req picohttpparser.Request, mut res picoht
 	// 回退到混合路由器
 	if route_match := ctx.app.context_hybrid_router.match_route(method_str, path) {
 		mut hono_ctx := create_picoev_context(req, route_match.params, query_map)
+		
+		// Handle WebSocket upgrade if detected
+		if is_ws_upgrade {
+			if handle_picoev_ws_upgrade(mut ctx, req, mut res, route_match, hono_ctx) {
+				// WebSocket upgrade successful
+				return
+			}
+			return
+		}
 		
 		// 优化：零中间件快速路径
 		if !ctx.app.has_middlewares {
@@ -422,6 +573,7 @@ fn send_picoev_response(mut res picohttpparser.Response, ctx Context, response h
 // 获取状态码文本
 fn get_status_text(code int) string {
 	return match code {
+		101 { 'Switching Protocols' }
 		200 { 'OK' }
 		201 { 'Created' }
 		204 { 'No Content' }
@@ -433,6 +585,7 @@ fn get_status_text(code int) string {
 		403 { 'Forbidden' }
 		404 { 'Not Found' }
 		405 { 'Method Not Allowed' }
+		426 { 'Upgrade Required' }
 		500 { 'Internal Server Error' }
 		502 { 'Bad Gateway' }
 		503 { 'Service Unavailable' }

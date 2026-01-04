@@ -84,6 +84,141 @@ fn usockets_on_open(s usockets.Socket, is_client int, ip &char, ip_length int) u
 	return s
 }
 
+// ============================================================================
+// WebSocket Upgrade Detection and Handling for uSockets
+// ============================================================================
+
+// Check if a raw HTTP request is a WebSocket upgrade request
+fn is_usockets_ws_upgrade(raw_data string) bool {
+	// Check for Upgrade: websocket header (case-insensitive)
+	mut has_upgrade := false
+	mut has_connection := false
+	mut has_ws_key := false
+	
+	lines := raw_data.split('\r\n')
+	for line in lines {
+		lower_line := line.to_lower()
+		if lower_line.starts_with('upgrade:') {
+			if lower_line.contains('websocket') {
+				has_upgrade = true
+			}
+		} else if lower_line.starts_with('connection:') {
+			if lower_line.contains('upgrade') {
+				has_connection = true
+			}
+		} else if lower_line.starts_with('sec-websocket-key:') {
+			has_ws_key = true
+		}
+	}
+	
+	return has_upgrade && has_connection && has_ws_key
+}
+
+// Get WebSocket key from raw HTTP request headers
+fn get_usockets_ws_key(raw_data string) string {
+	lines := raw_data.split('\r\n')
+	for line in lines {
+		if line.to_lower().starts_with('sec-websocket-key:') {
+			parts := line.split(':')
+			if parts.len >= 2 {
+				return parts[1..].join(':').trim_space()
+			}
+		}
+	}
+	return ''
+}
+
+// Get WebSocket protocol from raw HTTP request headers
+fn get_usockets_ws_protocol(raw_data string) string {
+	lines := raw_data.split('\r\n')
+	for line in lines {
+		if line.to_lower().starts_with('sec-websocket-protocol:') {
+			parts := line.split(':')
+			if parts.len >= 2 {
+				return parts[1..].join(':').trim_space()
+			}
+		}
+	}
+	return ''
+}
+
+// Get WebSocket version from raw HTTP request headers
+fn get_usockets_ws_version(raw_data string) string {
+	lines := raw_data.split('\r\n')
+	for line in lines {
+		if line.to_lower().starts_with('sec-websocket-version:') {
+			parts := line.split(':')
+			if parts.len >= 2 {
+				return parts[1..].join(':').trim_space()
+			}
+		}
+	}
+	return '13'
+}
+
+// Handle WebSocket upgrade for uSockets
+// Returns true if upgrade was successful, false otherwise
+fn handle_usockets_ws_upgrade(s usockets.Socket, raw_data string, route_match ContextRouteMatch, hono_ctx Context) bool {
+	// Validate WebSocket version
+	ws_version := get_usockets_ws_version(raw_data)
+	if ws_version != '13' {
+		s.write_bytes('HTTP/1.1 426 Upgrade Required\r\nSec-WebSocket-Version: 13\r\nContent-Type: text/plain\r\nContent-Length: 28\r\n\r\nUnsupported WebSocket version')
+		return false
+	}
+	
+	// Get WebSocket key
+	ws_key := get_usockets_ws_key(raw_data)
+	if ws_key.len == 0 {
+		s.write_bytes('HTTP/1.1 400 Bad Request\r\nContent-Type: text/plain\r\nContent-Length: 30\r\n\r\nMissing Sec-WebSocket-Key header')
+		return false
+	}
+	
+	// Compute accept key
+	accept_key := compute_accept_key(ws_key)
+	
+	// Execute the route handler to get WSEvents
+	mut mutable_ctx := hono_ctx
+	response := route_match.handler.handle(mut mutable_ctx)
+	
+	// Check if this is a WebSocket upgrade response
+	if response.status_code != 101 {
+		// Not a WebSocket upgrade, send the response as-is
+		send_usockets_response(s, mutable_ctx, response)
+		return false
+	}
+	
+	// Negotiate subprotocol
+	mut selected_protocol := ''
+	if '_ws_protocol' in mutable_ctx.store {
+		selected_protocol = mutable_ctx.store['_ws_protocol']
+	}
+	
+	// Build and send WebSocket handshake response
+	mut resp := strings.new_builder(256)
+	resp.write_string('HTTP/1.1 101 Switching Protocols\r\n')
+	resp.write_string('Upgrade: websocket\r\n')
+	resp.write_string('Connection: Upgrade\r\n')
+	resp.write_string('Sec-WebSocket-Accept: ')
+	resp.write_string(accept_key)
+	resp.write_string('\r\n')
+	if selected_protocol.len > 0 {
+		resp.write_string('Sec-WebSocket-Protocol: ')
+		resp.write_string(selected_protocol)
+		resp.write_string('\r\n')
+	}
+	resp.write_string('\r\n')
+	
+	s.write_bytes(resp.str())
+	
+	// Note: After the handshake, the connection is now in WebSocket mode.
+	// The uSockets backend will continue to receive data on this socket,
+	// but it will be WebSocket frames instead of HTTP requests.
+	// For full WebSocket support, additional frame handling would be needed
+	// in the usockets_on_data callback.
+	
+	return true
+}
+
 fn usockets_on_data(s usockets.Socket, data &char, length int) usockets.Socket {
 	if g_usockets_app == unsafe { nil } {
 		s.write_bytes('HTTP/1.1 500 Internal Server Error\r\nContent-Length: 21\r\n\r\nInternal Server Error')
@@ -99,12 +234,27 @@ fn usockets_on_data(s usockets.Socket, data &char, length int) usockets.Socket {
 		return s
 	}
 
+	// Check if this is a WebSocket upgrade request
+	is_ws_upgrade := is_usockets_ws_upgrade(raw_data)
+
 	// 路由匹配 - 优先使用快速路由器
 	mut response_sent := false
 
 	if g_usockets_app.use_fast_router {
 		if route_match := g_usockets_app.fast_router.match_route(method, path) {
 			mut hono_ctx := create_usockets_context(method, path, route_match.params, query_map, body)
+			
+			// Handle WebSocket upgrade if detected
+			if is_ws_upgrade {
+				// Parse headers for WebSocket context
+				hono_ctx = create_usockets_context_with_headers(raw_data, method, path, route_match.params, query_map, body)
+				if handle_usockets_ws_upgrade(s, raw_data, route_match, hono_ctx) {
+					// WebSocket upgrade successful
+					return s
+				}
+				// If upgrade failed, response was already sent
+				return s
+			}
 			
 			// 优化1：零中间件快速路径
 			if !g_usockets_app.has_middlewares {
@@ -123,6 +273,18 @@ fn usockets_on_data(s usockets.Socket, data &char, length int) usockets.Socket {
 	if !response_sent {
 		if route_match := g_usockets_app.context_hybrid_router.match_route(method, path) {
 			mut hono_ctx := create_usockets_context(method, path, route_match.params, query_map, body)
+			
+			// Handle WebSocket upgrade if detected
+			if is_ws_upgrade {
+				// Parse headers for WebSocket context
+				hono_ctx = create_usockets_context_with_headers(raw_data, method, path, route_match.params, query_map, body)
+				if handle_usockets_ws_upgrade(s, raw_data, route_match, hono_ctx) {
+					// WebSocket upgrade successful
+					return s
+				}
+				// If upgrade failed, response was already sent
+				return s
+			}
 			
 			// 优化1：零中间件快速路径
 			if !g_usockets_app.has_middlewares {
@@ -168,6 +330,7 @@ fn usockets_on_end(s usockets.Socket) usockets.Socket {
 	s.shutdown()
 	return s.close()
 }
+
 
 // 解析 HTTP 请求 - 零分配优化版
 // 使用指针遍历避免创建临时数组
@@ -284,6 +447,54 @@ fn create_usockets_context(method string, path string, params map[string]string,
 			method: parse_http_method_usockets(method)
 			url: path
 			data: body
+		}
+		params: params
+		query: query
+		body: body
+		url: path
+		path: path
+		status_code: 200
+		headers: map[string]string{}
+	}
+}
+
+// 创建 uSockets 上下文 - 带 HTTP 头部解析（用于 WebSocket 升级）
+fn create_usockets_context_with_headers(raw_data string, method string, path string, params map[string]string, query map[string]string, body string) Context {
+	// Parse headers from raw HTTP request
+	mut headers := http.new_header()
+	
+	lines := raw_data.split('\r\n')
+	mut in_headers := false
+	
+	for line in lines {
+		if !in_headers {
+			// Skip the request line
+			if line.contains(' HTTP/') {
+				in_headers = true
+			}
+			continue
+		}
+		
+		// Empty line marks end of headers
+		if line.len == 0 {
+			break
+		}
+		
+		// Parse header
+		colon_idx := line.index(':') or { continue }
+		if colon_idx > 0 {
+			name := line[..colon_idx].trim_space()
+			value := line[colon_idx + 1..].trim_space()
+			headers.add_custom(name, value) or { continue }
+		}
+	}
+	
+	return Context{
+		req: http.Request{
+			method: parse_http_method_usockets(method)
+			url: path
+			data: body
+			header: headers
 		}
 		params: params
 		query: query
@@ -444,6 +655,7 @@ fn eq_ignore_case_usockets(a string, b string) bool {
 // 获取状态码文本
 fn get_status_text_usockets(code int) string {
 	return match code {
+		101 { 'Switching Protocols' }
 		200 { 'OK' }
 		201 { 'Created' }
 		204 { 'No Content' }
@@ -455,6 +667,7 @@ fn get_status_text_usockets(code int) string {
 		403 { 'Forbidden' }
 		404 { 'Not Found' }
 		405 { 'Method Not Allowed' }
+		426 { 'Upgrade Required' }
 		500 { 'Internal Server Error' }
 		502 { 'Bad Gateway' }
 		503 { 'Service Unavailable' }
