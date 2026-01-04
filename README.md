@@ -19,6 +19,7 @@ A high-performance V language web framework inspired by [Hono.js](https://hono.d
 - 📤 **File Upload** - Chunked file upload support
 - 🗄️ **Database** - SQLite integration for data persistence
 - 🔌 **WebSocket** - RFC 6455 compliant WebSocket support with event-based API
+- 📡 **SSE Streaming** - Server-Sent Events and streaming response support
 
 ## Installation
 
@@ -784,6 +785,251 @@ fn main() {
 | 1009 | `ws_close_message_too_big` | Message too big |
 | 1011 | `ws_close_internal_error` | Internal server error |
 
+### 9. SSE Streaming Helper
+
+Server-Sent Events (SSE) and streaming response support for real-time data push.
+
+#### Basic Binary Streaming
+
+```v
+import meiseayoung.hono
+
+fn main() {
+    mut app := hono.Hono.new()
+
+    // Basic stream - binary data streaming
+    // Sets Transfer-Encoding: chunked header
+    app.get('/stream', fn (mut c hono.Context) http.Response {
+        return hono.c_stream(mut c, fn (mut stream hono.StreamContext) ! {
+            // Register abort callback for client disconnection
+            stream.on_abort(fn () {
+                println('Client disconnected')
+            })
+            
+            // Stream binary data in chunks
+            for i in 0 .. 5 {
+                data := 'Chunk ${i + 1}: Hello from stream!\n'
+                stream.write(data.bytes())!
+                stream.sleep(500) // 500ms delay between chunks
+            }
+        })
+    })
+
+    app.listen(':3000')
+}
+```
+
+#### Text Streaming
+
+```v
+import meiseayoung.hono
+
+fn main() {
+    mut app := hono.Hono.new()
+
+    // Text stream - for streaming text content
+    // Sets Content-Type: text/plain; charset=utf-8
+    // Sets Transfer-Encoding: chunked
+    // Sets X-Content-Type-Options: nosniff
+    app.get('/stream-text', fn (mut c hono.Context) http.Response {
+        return hono.c_stream_text(mut c, fn (mut stream hono.StreamContext) ! {
+            stream.writeln('=== Text Streaming Demo ===')!
+            stream.sleep(300)
+            
+            for i in 0 .. 5 {
+                stream.write_string('Processing item ${i + 1}... ')!
+                stream.sleep(200)
+                stream.writeln('Done!')!
+            }
+        })
+    })
+
+    app.listen(':3000')
+}
+```
+
+#### Server-Sent Events (SSE)
+
+```v
+import meiseayoung.hono
+
+fn main() {
+    mut app := hono.Hono.new()
+
+    // SSE stream - for Server-Sent Events
+    // Sets Content-Type: text/event-stream
+    // Sets Cache-Control: no-cache
+    // Sets Connection: keep-alive
+    app.get('/sse', fn (mut c hono.Context) http.Response {
+        return hono.c_stream_sse(mut c, fn (mut stream hono.StreamContext) ! {
+            // Send initial connection event
+            stream.write_sse(hono.SSEEvent{
+                data: 'Connected to SSE stream'
+                event: 'connect'
+                id: '0'
+            })!
+            
+            // Send periodic updates
+            for i in 1 .. 6 {
+                stream.sleep(1000) // 1 second delay
+                
+                stream.write_sse(hono.SSEEvent{
+                    data: 'Update ${i}'
+                    event: 'update'
+                    id: '${i}'
+                })!
+            }
+            
+            // Send completion event
+            stream.write_sse(hono.SSEEvent{
+                data: 'Stream completed'
+                event: 'complete'
+                id: '999'
+            })!
+        })
+    })
+
+    app.listen(':3000')
+}
+```
+
+#### SSE with Multi-line Data
+
+```v
+import meiseayoung.hono
+
+fn main() {
+    mut app := hono.Hono.new()
+
+    app.get('/sse-json', fn (mut c hono.Context) http.Response {
+        return hono.c_stream_sse(mut c, fn (mut stream hono.StreamContext) ! {
+            // Send JSON data (multi-line formatted)
+            json_data := '{\n  "name": "v-hono",\n  "version": "1.0.0"\n}'
+            stream.write_sse(hono.SSEEvent{
+                data: json_data
+                event: 'json'
+                id: '1'
+            })!
+        })
+    })
+
+    app.listen(':3000')
+}
+```
+
+#### SSE with Error Handling
+
+```v
+import meiseayoung.hono
+
+fn main() {
+    mut app := hono.Hono.new()
+
+    app.get('/sse-error', fn (mut c hono.Context) http.Response {
+        return hono.c_stream_sse(mut c, fn (mut stream hono.StreamContext) ! {
+            stream.write_sse(hono.SSEEvent{
+                data: 'Starting...'
+                event: 'start'
+            })!
+            
+            // Simulate an error
+            return error('Something went wrong')
+        }, fn (err IError, mut stream hono.StreamContext) {
+            // Custom error handler
+            stream.write_sse(hono.SSEEvent{
+                data: 'Error: ${err.msg()}'
+                event: 'error'
+            }) or {}
+        })
+    })
+
+    app.listen(':3000')
+}
+```
+
+#### SSE with Retry Field
+
+```v
+import meiseayoung.hono
+
+fn main() {
+    mut app := hono.Hono.new()
+
+    app.get('/sse-retry', fn (mut c hono.Context) http.Response {
+        return hono.c_stream_sse(mut c, fn (mut stream hono.StreamContext) ! {
+            // Send event with retry field (client reconnects after 3 seconds)
+            stream.write_sse(hono.SSEEvent{
+                data: 'This event includes a retry field'
+                event: 'message'
+                id: '1'
+                retry: 3000 // 3 seconds
+            })!
+        })
+    })
+
+    app.listen(':3000')
+}
+```
+
+#### StreamContext Methods
+
+| Method | Description |
+|--------|-------------|
+| `write(data []u8)` | Write raw bytes to stream |
+| `write_string(data string)` | Write string to stream |
+| `writeln(data string)` | Write string with newline |
+| `write_sse(event SSEEvent)` | Write SSE event |
+| `sleep(ms int)` | Pause execution for milliseconds |
+| `pipe(data []u8)` | Pipe data to stream |
+| `on_abort(callback fn())` | Register abort callback |
+| `close()` | Close the stream |
+| `is_open()` | Check if stream is still open |
+
+#### SSEEvent Fields
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `data` | `string` | Yes | Event data (supports multi-line) |
+| `event` | `string` | No | Event type name |
+| `id` | `string` | No | Event ID for client reconnection |
+| `retry` | `int` | No | Reconnection interval in milliseconds |
+
+#### Streaming Functions
+
+| Function | Headers Set | Use Case |
+|----------|-------------|----------|
+| `c_stream()` | `Transfer-Encoding: chunked` | Binary data streaming |
+| `c_stream_text()` | `Content-Type: text/plain`, `Transfer-Encoding: chunked`, `X-Content-Type-Options: nosniff` | Text streaming |
+| `c_stream_sse()` | `Content-Type: text/event-stream`, `Cache-Control: no-cache`, `Connection: keep-alive` | Server-Sent Events |
+
+#### Client-Side JavaScript Example
+
+```html
+<script>
+// Connect to SSE endpoint
+const eventSource = new EventSource('/sse');
+
+// Listen for specific event types
+eventSource.addEventListener('connect', (e) => {
+    console.log('Connected:', e.data);
+});
+
+eventSource.addEventListener('update', (e) => {
+    console.log('Update:', e.data, 'ID:', e.lastEventId);
+});
+
+eventSource.addEventListener('complete', (e) => {
+    console.log('Complete:', e.data);
+    eventSource.close();
+});
+
+// Handle errors
+eventSource.onerror = (e) => {
+    console.error('SSE Error:', e);
+};
+</script>
+```
+
 ## Route Grouping
 
 ```v
@@ -889,8 +1135,9 @@ v-hono/
 ├── rate_limit.v       # Rate limiting middleware
 ├── validator.v        # Request validation
 ├── websocket.v        # WebSocket helper (RFC 6455)
-├── picoev_server.v    # Picoev backend with WebSocket support
-├── usockets_server.v  # uSockets backend with WebSocket support
+├── streaming.v        # SSE streaming helper
+├── picoev_server.v    # Picoev backend with WebSocket/SSE support
+├── usockets_server.v  # uSockets backend with WebSocket/SSE support
 ├── v.mod              # Module definition
 ├── README.md          # Documentation
 ├── examples/          # Example applications

@@ -521,6 +521,13 @@ fn parse_http_method_fast(method string) http.Method {
 
 // 发送 picoev 响应 - 优化版
 fn send_picoev_response(mut res picohttpparser.Response, ctx Context, response http.Response, keepalive bool, config PicoevConfig) {
+	// Check if this is a streaming response
+	if is_streaming_response(ctx) {
+		// Handle streaming response
+		handle_picoev_streaming_response(mut res, ctx, config)
+		return
+	}
+	
 	status_code := if ctx.status_code != 0 { ctx.status_code } else { response.status_code }
 	
 	if status_code == 200 {
@@ -568,6 +575,94 @@ fn send_picoev_response(mut res picohttpparser.Response, ctx Context, response h
 	
 	res.body(response.body)
 	res.end()
+}
+
+// ============================================================================
+// Streaming Response Handling for Picoev
+// ============================================================================
+
+// handle_picoev_streaming_response - Handle a streaming response using PicoevStreamWriter
+// This function:
+// 1. Sends the HTTP headers for streaming
+// 2. Creates a PicoevStreamWriter
+// 3. Executes the streaming callback
+// 4. Handles errors and cleanup
+fn handle_picoev_streaming_response(mut res picohttpparser.Response, ctx Context, config PicoevConfig) {
+	// Get stream configuration
+	stream_config := get_stream_config(ctx) or {
+		// Fallback to error response if stream config not found
+		res.raw('HTTP/1.1 500 Internal Server Error\r\n')
+		res.header('Content-Type', 'text/plain')
+		res.body('Stream configuration not found')
+		res.end()
+		return
+	}
+	
+	// Determine status code
+	status_code := if ctx.status_code != 0 { ctx.status_code } else { 200 }
+	
+	// Send HTTP response line
+	if status_code == 200 {
+		res.http_ok()
+	} else {
+		res.raw('HTTP/1.1 ${status_code} ${get_status_text(status_code)}\r\n')
+	}
+	
+	// Send headers from context
+	mut has_transfer_encoding := false
+	mut has_connection := false
+	
+	for key, value in ctx.headers {
+		key_len := key.len
+		// Skip Content-Length for streaming (we use chunked encoding)
+		if key_len == 14 && eq_ignore_case(key, 'content-length') {
+			continue
+		}
+		res.header(key, value)
+		if key_len == 17 && eq_ignore_case(key, 'transfer-encoding') {
+			has_transfer_encoding = true
+		} else if key_len == 10 && eq_ignore_case(key, 'connection') {
+			has_connection = true
+		}
+	}
+	
+	// Ensure Transfer-Encoding: chunked is set
+	if !has_transfer_encoding {
+		res.header('Transfer-Encoding', 'chunked')
+	}
+	
+	// Ensure Connection header is set for streaming
+	if !has_connection {
+		res.header('Connection', 'keep-alive')
+		res.header('Keep-Alive', 'timeout=${config.timeout_secs}')
+	}
+	
+	// End headers section (empty body to signal headers are complete)
+	// Note: We don't call res.body() or res.end() here because we're streaming
+	res.raw('\r\n')
+	
+	// Create PicoevStreamWriter for streaming
+	mut writer := PicoevStreamWriter.new(res)
+	
+	// Create StreamContext with the writer
+	mut stream_ctx := StreamContext.new(writer)
+	
+	// Execute the streaming callback
+	stream_config.callback(mut stream_ctx) or {
+		// Handle error
+		if error_handler := stream_config.error_handler {
+			error_handler(err, mut stream_ctx)
+		} else {
+			// Default: log error to console
+			eprintln('[Picoev Stream Error] ${err.msg()}')
+		}
+	}
+	
+	// Auto-close the stream when callback completes
+	stream_ctx.close()
+	
+	// Cleanup the stored configuration
+	cleanup_stream_config(ctx)
 }
 
 // 获取状态码文本

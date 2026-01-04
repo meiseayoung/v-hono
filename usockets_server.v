@@ -577,6 +577,13 @@ fn exec_middlewares_usockets(idx int, middlewares []ContextMiddleware, mut ctx C
 
 // 发送 uSockets 响应 - 优化版
 fn send_usockets_response(s usockets.Socket, ctx Context, response http.Response) {
+	// Check if this is a streaming response
+	if is_streaming_response(ctx) {
+		// Handle streaming response
+		handle_usockets_streaming_response(s, ctx)
+		return
+	}
+	
 	status_code := if ctx.status_code != 0 { ctx.status_code } else { response.status_code }
 	
 	mut resp := strings.new_builder(512)
@@ -631,6 +638,100 @@ fn send_usockets_response(s usockets.Socket, ctx Context, response http.Response
 	resp.write_string(response.body)
 
 	s.write_bytes(resp.str())
+}
+
+// ============================================================================
+// Streaming Response Handling for uSockets
+// ============================================================================
+
+// handle_usockets_streaming_response - Handle a streaming response using UsocketsStreamWriter
+// This function:
+// 1. Sends the HTTP headers for streaming
+// 2. Creates a UsocketsStreamWriter
+// 3. Executes the streaming callback
+// 4. Handles errors and cleanup
+//
+// Requirements: 7.1, 7.2, 7.3, 7.4
+fn handle_usockets_streaming_response(s usockets.Socket, ctx Context) {
+	// Get stream configuration
+	stream_config := get_stream_config(ctx) or {
+		// Fallback to error response if stream config not found
+		s.write_bytes('HTTP/1.1 500 Internal Server Error\r\nContent-Type: text/plain\r\nContent-Length: 32\r\n\r\nStream configuration not found')
+		return
+	}
+	
+	// Determine status code
+	status_code := if ctx.status_code != 0 { ctx.status_code } else { 200 }
+	
+	// Build HTTP response headers
+	mut resp := strings.new_builder(512)
+	
+	// Status line
+	resp.write_string('HTTP/1.1 ')
+	resp.write_string(status_code.str())
+	resp.write_string(' ')
+	resp.write_string(get_status_text_usockets(status_code))
+	resp.write_string('\r\n')
+	
+	// Send headers from context
+	mut has_transfer_encoding := false
+	mut has_connection := false
+	
+	for key, value in ctx.headers {
+		key_len := key.len
+		// Skip Content-Length for streaming (we use chunked encoding)
+		if key_len == 14 && eq_ignore_case_usockets(key, 'content-length') {
+			continue
+		}
+		resp.write_string(key)
+		resp.write_string(': ')
+		resp.write_string(value)
+		resp.write_string('\r\n')
+		if key_len == 17 && eq_ignore_case_usockets(key, 'transfer-encoding') {
+			has_transfer_encoding = true
+		} else if key_len == 10 && eq_ignore_case_usockets(key, 'connection') {
+			has_connection = true
+		}
+	}
+	
+	// Ensure Transfer-Encoding: chunked is set (Requirement 7.2)
+	if !has_transfer_encoding {
+		resp.write_string('Transfer-Encoding: chunked\r\n')
+	}
+	
+	// Ensure Connection header is set for streaming
+	if !has_connection {
+		resp.write_string('Connection: keep-alive\r\n')
+	}
+	
+	// End headers section
+	resp.write_string('\r\n')
+	
+	// Send headers to client
+	s.write_bytes(resp.str())
+	
+	// Create UsocketsStreamWriter for streaming (Requirement 7.1)
+	mut writer := UsocketsStreamWriter.new(s)
+	
+	// Create StreamContext with the writer
+	mut stream_ctx := StreamContext.new(writer)
+	
+	// Execute the streaming callback (Requirement 7.4 - compatibility with callback architecture)
+	stream_config.callback(mut stream_ctx) or {
+		// Handle error (Requirement 7.3 - handle connection close events)
+		if error_handler := stream_config.error_handler {
+			error_handler(err, mut stream_ctx)
+		} else {
+			// Default: log error to console
+			eprintln('[uSockets Stream Error] ${err.msg()}')
+		}
+	}
+	
+	// Auto-close the stream when callback completes
+	stream_ctx.close()
+	
+	// Cleanup the stored configuration
+	cleanup_stream_config(ctx)
 }
 
 // 大小写不敏感字符串比较（避免分配）
