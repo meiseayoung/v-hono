@@ -583,8 +583,8 @@ fn send_picoev_response(mut res picohttpparser.Response, ctx Context, response h
 
 // handle_picoev_streaming_response - Handle a streaming response using PicoevStreamWriter
 // This function:
-// 1. Sends the HTTP headers for streaming
-// 2. Creates a PicoevStreamWriter
+// 1. Sends the HTTP headers for streaming directly to socket fd
+// 2. Creates a PicoevStreamWriter with the socket fd
 // 3. Executes the streaming callback
 // 4. Handles errors and cleanup
 fn handle_picoev_streaming_response(mut res picohttpparser.Response, ctx Context, config PicoevConfig) {
@@ -601,14 +601,10 @@ fn handle_picoev_streaming_response(mut res picohttpparser.Response, ctx Context
 	// Determine status code
 	status_code := if ctx.status_code != 0 { ctx.status_code } else { 200 }
 	
-	// Send HTTP response line
-	if status_code == 200 {
-		res.http_ok()
-	} else {
-		res.raw('HTTP/1.1 ${status_code} ${get_status_text(status_code)}\r\n')
-	}
+	// Build HTTP headers string for direct socket write
+	mut headers_str := 'HTTP/1.1 ${status_code} ${get_status_text(status_code)}\r\n'
 	
-	// Send headers from context
+	// Add headers from context
 	mut has_transfer_encoding := false
 	mut has_connection := false
 	
@@ -618,7 +614,7 @@ fn handle_picoev_streaming_response(mut res picohttpparser.Response, ctx Context
 		if key_len == 14 && eq_ignore_case(key, 'content-length') {
 			continue
 		}
-		res.header(key, value)
+		headers_str += '${key}: ${value}\r\n'
 		if key_len == 17 && eq_ignore_case(key, 'transfer-encoding') {
 			has_transfer_encoding = true
 		} else if key_len == 10 && eq_ignore_case(key, 'connection') {
@@ -628,20 +624,27 @@ fn handle_picoev_streaming_response(mut res picohttpparser.Response, ctx Context
 	
 	// Ensure Transfer-Encoding: chunked is set
 	if !has_transfer_encoding {
-		res.header('Transfer-Encoding', 'chunked')
+		headers_str += 'Transfer-Encoding: chunked\r\n'
 	}
 	
 	// Ensure Connection header is set for streaming
 	if !has_connection {
-		res.header('Connection', 'keep-alive')
-		res.header('Keep-Alive', 'timeout=${config.timeout_secs}')
+		headers_str += 'Connection: keep-alive\r\n'
+		headers_str += 'Keep-Alive: timeout=${config.timeout_secs}\r\n'
 	}
 	
-	// End headers section (empty body to signal headers are complete)
-	// Note: We don't call res.body() or res.end() here because we're streaming
-	res.raw('\r\n')
+	// End headers section
+	headers_str += '\r\n'
 	
-	// Create PicoevStreamWriter for streaming
+	// Write headers directly to socket fd for immediate delivery
+	fd := res.fd
+	write_to_socket_fd(fd, headers_str.bytes()) or {
+		eprintln('[Picoev Stream Error] Failed to write headers: ${err.msg()}')
+		cleanup_stream_config(ctx)
+		return
+	}
+	
+	// Create PicoevStreamWriter for streaming (uses fd directly)
 	mut writer := PicoevStreamWriter.new(res)
 	
 	// Create StreamContext with the writer
@@ -663,6 +666,27 @@ fn handle_picoev_streaming_response(mut res picohttpparser.Response, ctx Context
 	
 	// Cleanup the stored configuration
 	cleanup_stream_config(ctx)
+}
+
+// write_to_socket_fd - Helper function to write bytes directly to socket fd
+// Used for sending HTTP headers before streaming begins
+fn write_to_socket_fd(fd int, data []u8) ! {
+	if data.len == 0 {
+		return
+	}
+	mut total_written := 0
+	for total_written < data.len {
+		remaining := data.len - total_written
+		ptr := unsafe { &u8(data.data) + total_written }
+		written := C.send(fd, ptr, remaining, 0)
+		if written < 0 {
+			return error('Failed to write to socket')
+		}
+		if written == 0 {
+			return error('Connection closed by peer')
+		}
+		total_written += written
+	}
 }
 
 // 获取状态码文本

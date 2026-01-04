@@ -8,6 +8,9 @@ import time
 import picohttpparser
 import usockets
 
+// C function declaration for direct socket writes
+fn C.send(sockfd int, buf voidptr, len int, flags int) int
+
 // ============================================================================
 // SSE Event Structure
 // ============================================================================
@@ -184,23 +187,26 @@ pub fn (mut ctx StreamContext) trigger_abort() {
 
 // PicoevStreamWriter - StreamWriter implementation for picoev server
 // Supports chunked transfer encoding for streaming responses
+// Uses direct socket fd writes for immediate data delivery (true streaming)
 @[heap]
 pub struct PicoevStreamWriter {
 mut:
-	res       &picohttpparser.Response
+	fd        int  // Socket file descriptor for direct writes
 	connected bool
 }
 
 // PicoevStreamWriter.new - Create a new PicoevStreamWriter with the given response
+// Extracts the fd from picohttpparser.Response for direct socket writes
 pub fn PicoevStreamWriter.new(res &picohttpparser.Response) &PicoevStreamWriter {
 	return &PicoevStreamWriter{
-		res: unsafe { res }
+		fd: res.fd
 		connected: true
 	}
 }
 
 // write - Write raw bytes to the stream using chunked transfer encoding
 // Format: {hex_size}\r\n{data}\r\n
+// Writes directly to socket fd for immediate delivery
 pub fn (mut w PicoevStreamWriter) write(data []u8) ! {
 	if !w.connected {
 		return error('Connection closed')
@@ -210,9 +216,10 @@ pub fn (mut w PicoevStreamWriter) write(data []u8) ! {
 	}
 	// Write chunked format: size in hex, CRLF, data, CRLF
 	chunk_header := format_chunk_size(data.len)
-	w.res.raw(chunk_header)
-	w.res.raw(data.bytestr())
-	w.res.raw('\r\n')
+	// Write directly to socket fd
+	w.write_to_fd(chunk_header.bytes())!
+	w.write_to_fd(data)!
+	w.write_to_fd('\r\n'.bytes())!
 }
 
 // write_string - Write a string to the stream using chunked transfer encoding
@@ -225,15 +232,40 @@ pub fn (mut w PicoevStreamWriter) write_string(data string) ! {
 	}
 	// Write chunked format: size in hex, CRLF, data, CRLF
 	chunk_header := format_chunk_size(data.len)
-	w.res.raw(chunk_header)
-	w.res.raw(data)
-	w.res.raw('\r\n')
+	// Write directly to socket fd
+	w.write_to_fd(chunk_header.bytes())!
+	w.write_to_fd(data.bytes())!
+	w.write_to_fd('\r\n'.bytes())!
 }
 
-// flush - Flush the buffer (picoev handles this automatically)
+// write_to_fd - Write bytes directly to the socket file descriptor
+// This ensures immediate delivery without buffering
+@[inline]
+fn (mut w PicoevStreamWriter) write_to_fd(data []u8) ! {
+	if data.len == 0 {
+		return
+	}
+	mut total_written := 0
+	for total_written < data.len {
+		remaining := data.len - total_written
+		ptr := unsafe { &u8(data.data) + total_written }
+		written := C.send(w.fd, ptr, remaining, 0)
+		if written < 0 {
+			w.connected = false
+			return error('Failed to write to socket')
+		}
+		if written == 0 {
+			w.connected = false
+			return error('Connection closed by peer')
+		}
+		total_written += written
+	}
+}
+
+// flush - Flush the buffer (direct fd writes are already unbuffered)
 pub fn (mut w PicoevStreamWriter) flush() ! {
-	// picoev automatically flushes data
-	// No explicit flush needed
+	// Direct fd writes are unbuffered, no explicit flush needed
+	// But we can use TCP_NODELAY to disable Nagle's algorithm if needed
 }
 
 // close - Close the stream by sending the final chunk
@@ -241,9 +273,9 @@ pub fn (mut w PicoevStreamWriter) flush() ! {
 pub fn (mut w PicoevStreamWriter) close() ! {
 	if w.connected {
 		// Write the final chunk (zero-length chunk) to signal end of stream
-		w.res.raw('0\r\n\r\n')
-		w.res.end()
+		w.write_to_fd('0\r\n\r\n'.bytes()) or {}
 		w.connected = false
+		// Note: Don't close the fd here, picoev manages the connection lifecycle
 	}
 }
 
