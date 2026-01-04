@@ -7,11 +7,17 @@ A high-performance V language web framework inspired by [Hono.js](https://hono.d
 - 🚀 **High Performance** - Hybrid routing with LRU cache for optimal speed
 - 🎯 **Simple API** - Clean and intuitive API design inspired by Hono.js
 - 🔧 **Middleware Support** - Flexible middleware system with onion model
+- 🌐 **CORS** - Built-in CORS middleware with full configuration
+- 🍪 **Cookie Helper** - Easy cookie management with signed cookie support
+- � **JWTe Authentication** - JWT middleware with HS256/384/512 support
+- 🎫 **Bearer Auth** - Simple Bearer token authentication
+- � **Cotmpression** - Gzip and deflate response compression
+- ⏱️ **Rate Limiting** - Request rate limiting with customizable stores
+- ✅ **Validation** - Schema-based request validation
 - 📁 **Static File Serving** - Built-in static file server with caching
-- 🔐 **Security** - Path validation and security utilities
+- 🛡️ **Security** - Path validation and security utilities
 - 📤 **File Upload** - Chunked file upload support
 - 🗄️ **Database** - SQLite integration for data persistence
-- 🔑 **Authentication** - Built-in auth system with JWT-like tokens
 
 ## Installation
 
@@ -197,6 +203,423 @@ fn main() {
 }
 ```
 
+## Built-in Middleware
+
+v-hono provides 7 built-in middleware components inspired by Hono.js:
+
+### 1. CORS Middleware
+
+Cross-Origin Resource Sharing middleware for handling CORS requests.
+
+```v
+import meiseayoung.hono
+
+fn main() {
+    mut app := hono.Hono.new()
+
+    // Allow all origins
+    app.use(hono.cors())
+
+    // Custom configuration
+    app.use(hono.cors(hono.CorsOptions{
+        origin: 'https://example.com'
+        credentials: true
+        max_age: 600
+        allow_methods: ['GET', 'POST', 'PUT', 'DELETE']
+        allow_headers: ['Content-Type', 'Authorization']
+    }))
+
+    app.listen(':3000')
+}
+```
+
+### 2. Cookie Helper
+
+Utilities for managing HTTP cookies, including signed cookies.
+
+```v
+import meiseayoung.hono
+
+fn main() {
+    mut app := hono.Hono.new()
+
+    app.get('/cookie/set', fn (mut c hono.Context) http.Response {
+        // Set a cookie
+        hono.set_cookie(mut c, 'session_id', 'abc123', hono.CookieOptions{
+            http_only: true
+            secure: true
+            max_age: 3600
+            path: '/'
+        })
+        return c.json('{"message": "Cookie set"}')
+    })
+
+    app.get('/cookie/get', fn (mut c hono.Context) http.Response {
+        // Get a cookie
+        if session := hono.get_cookie(c, 'session_id') {
+            return c.json('{"session": "${session}"}')
+        }
+        return c.json('{"error": "Cookie not found"}')
+    })
+
+    app.get('/cookie/delete', fn (mut c hono.Context) http.Response {
+        hono.delete_cookie(mut c, 'session_id')
+        return c.json('{"message": "Cookie deleted"}')
+    })
+
+    // Signed cookies (tamper-proof)
+    app.get('/signed/set', fn (mut c hono.Context) http.Response {
+        secret := 'my-secret-key'
+        hono.set_signed_cookie(mut c, 'user_data', 'user123', secret) or {
+            return c.json('{"error": "Failed to set signed cookie"}')
+        }
+        return c.json('{"message": "Signed cookie set"}')
+    })
+
+    app.get('/signed/get', fn (mut c hono.Context) http.Response {
+        secret := 'my-secret-key'
+        user_data := hono.get_signed_cookie(c, 'user_data', secret) or {
+            return c.json('{"error": "Invalid or missing signed cookie"}')
+        }
+        return c.json('{"user_data": "${user_data}"}')
+    })
+
+    app.listen(':3000')
+}
+```
+
+### 3. JWT Middleware
+
+JSON Web Token authentication middleware.
+
+```v
+import meiseayoung.hono
+import time
+
+fn main() {
+    mut app := hono.Hono.new()
+    secret := 'my-jwt-secret-key'
+
+    // Generate JWT token
+    app.post('/auth/login', fn [secret] (mut c hono.Context) http.Response {
+        payload := hono.JwtPayload{
+            sub: 'user123'
+            iss: 'my-app'
+            exp: time.now().unix() + 3600  // 1 hour
+            iat: time.now().unix()
+            claims: {
+                'role': 'admin'
+                'name': 'John Doe'
+            }
+        }
+
+        token := hono.sign_jwt(payload, secret, .hs256) or {
+            c.status(500)
+            return c.json('{"error": "Failed to generate token"}')
+        }
+
+        return c.json('{"token": "${token}"}')
+    })
+
+    // Protect routes with JWT middleware
+    app.use('/api/*', hono.jwt_middleware(hono.JwtOptions{
+        secret: secret
+        alg: .hs256
+    }))
+
+    app.get('/api/profile', fn (mut c hono.Context) http.Response {
+        // Access JWT payload from context
+        if payload := hono.get_jwt_payload(c) {
+            return c.json('{"user": "${payload.sub}"}')
+        }
+        return c.json('{"error": "No payload"}')
+    })
+
+    app.listen(':3000')
+}
+```
+
+### 4. Bearer Auth Middleware
+
+Simple Bearer token authentication.
+
+```v
+import meiseayoung.hono
+
+fn main() {
+    mut app := hono.Hono.new()
+
+    // Single token authentication
+    app.use('/api/*', hono.bearer_auth(hono.BearerAuthOptions{
+        token: 'my-api-token'
+        realm: 'Protected API'
+    }))
+
+    // Multiple tokens
+    app.use('/admin/*', hono.bearer_auth(hono.BearerAuthOptions{
+        token: hono.BearerToken(['token1', 'token2', 'token3'])
+    }))
+
+    // Custom verification
+    app.use('/custom/*', hono.bearer_auth(hono.BearerAuthOptions{
+        verify_token: fn (token string, c hono.Context) bool {
+            // Custom validation logic
+            return token.len > 10 && token.starts_with('valid_')
+        }
+    }))
+
+    app.get('/api/data', fn (mut c hono.Context) http.Response {
+        token := hono.get_bearer_token(c) or { 'unknown' }
+        return c.json('{"message": "Protected data", "token": "${token}"}')
+    })
+
+    app.listen(':3000')
+}
+```
+
+### 5. Compression Middleware
+
+Response compression with gzip and deflate support.
+
+```v
+import meiseayoung.hono
+
+fn main() {
+    mut app := hono.Hono.new()
+
+    // Auto-select best encoding based on Accept-Encoding header
+    app.use(hono.compress())
+
+    // Force gzip compression
+    app.use(hono.gzip())
+
+    // Custom configuration
+    app.use(hono.compress(hono.CompressOptions{
+        encoding: .gzip
+        threshold: 2048  // Only compress responses > 2KB
+        level: 6         // Compression level (1-9)
+    }))
+
+    app.get('/large-data', fn (mut c hono.Context) http.Response {
+        // Large response will be automatically compressed
+        return c.json('{"data": "...large content..."}')
+    })
+
+    app.listen(':3000')
+}
+```
+
+### 6. Rate Limiting Middleware
+
+Request rate limiting to protect against abuse.
+
+```v
+import meiseayoung.hono
+
+fn main() {
+    mut app := hono.Hono.new()
+
+    // Create memory store for rate limiting
+    store := hono.MemoryStore.new()
+
+    // Default: 100 requests per minute
+    app.use(hono.rate_limit(hono.RateLimitOptions{
+        store: store
+        window_ms: 60000   // 1 minute
+        limit: 100         // Max 100 requests
+        headers: true      // Add X-RateLimit-* headers
+    }))
+
+    // Custom key generator (e.g., by user ID)
+    app.use('/api/*', hono.rate_limit(hono.RateLimitOptions{
+        store: store
+        window_ms: 60000
+        limit: 50
+        key_generator: fn (c hono.Context) string {
+            if user_id := c.get('user_id') {
+                return user_id
+            }
+            return c.get_client_ip()
+        }
+    }))
+
+    // Skip rate limiting for certain requests
+    app.use(hono.rate_limit(hono.RateLimitOptions{
+        store: store
+        limit: 100
+        skip: fn (c hono.Context) bool {
+            // Skip for health check endpoints
+            return c.path == '/health'
+        }
+    }))
+
+    app.get('/', fn (mut c hono.Context) http.Response {
+        return c.text('Hello!')
+    })
+
+    app.listen(':3000')
+}
+```
+
+### 7. Request Validator
+
+Schema-based request validation for JSON body, query parameters, path parameters, and headers.
+
+```v
+import meiseayoung.hono
+
+fn main() {
+    mut app := hono.Hono.new()
+
+    // Validate JSON body
+    app.post('/users',
+        hono.validate_json(hono.v_object({
+            'name':  hono.v_string().required().min(2).max(50)
+            'email': hono.v_string().required().pattern(r'^[\w\.-]+@[\w\.-]+\.\w+$')
+            'age':   hono.v_int().min(0).max(150)
+        })),
+        fn (mut c hono.Context) http.Response {
+            data := hono.get_validated_data(c)
+            name := data['name'] or { '' }
+            email := data['email'] or { '' }
+            return c.json('{"message": "User created", "name": "${name}", "email": "${email}"}')
+        }
+    )
+
+    // Validate query parameters
+    app.get('/search',
+        hono.validate_query(hono.v_object({
+            'q':    hono.v_string().required().min(1)
+            'page': hono.v_int().min(1)
+            'size': hono.v_int().min(1).max(100)
+        })),
+        fn (mut c hono.Context) http.Response {
+            q := hono.get_validated_field(c, 'q') or { '' }
+            page := hono.get_validated_field(c, 'page') or { '1' }
+            return c.json('{"query": "${q}", "page": ${page}}')
+        }
+    )
+
+    // Validate path parameters
+    app.get('/users/:id',
+        hono.validate_params(hono.v_object({
+            'id': hono.v_int().required().min(1)
+        })),
+        fn (mut c hono.Context) http.Response {
+            id := hono.get_validated_field(c, 'id') or { '0' }
+            return c.json('{"user_id": ${id}}')
+        }
+    )
+
+    // Validate headers
+    app.use('/api/*', hono.validate_headers(hono.v_object({
+        'X-API-Key': hono.v_string().required()
+    })))
+
+    app.listen(':3000')
+}
+```
+
+#### Schema Builder API
+
+```v
+// String schema
+hono.v_string()
+    .required()           // Field is required
+    .min(2)               // Minimum length
+    .max(100)             // Maximum length
+    .pattern(r'^\w+$')    // Regex pattern
+    .enum_of(['a', 'b'])  // Allowed values
+
+// Integer schema
+hono.v_int()
+    .required()
+    .min(0)
+    .max(100)
+
+// Float schema
+hono.v_float()
+    .required()
+    .min(0.0)
+    .max(100.0)
+
+// Boolean schema
+hono.v_bool()
+    .required()
+
+// Array schema
+hono.v_array(hono.v_string())
+    .min_items(1)
+    .max_items(10)
+
+// Nested object schema
+hono.v_object({
+    'address': hono.v_object({
+        'street': hono.v_string().required()
+        'city':   hono.v_string().required()
+    })
+})
+```
+
+### Utility Middleware
+
+Additional utility middleware included:
+
+```v
+import meiseayoung.hono
+
+fn main() {
+    mut app := hono.Hono.new()
+
+    // Security headers (X-Content-Type-Options, X-Frame-Options, etc.)
+    app.use(hono.secure_headers())
+
+    // Request ID generation
+    app.use(hono.request_id())
+
+    // Request timing (adds X-Response-Time header)
+    app.use(hono.timing())
+
+    // Combine multiple middleware
+    combined := hono.combine_middlewares([
+        hono.cors(),
+        hono.secure_headers(),
+        hono.timing(),
+    ])
+    app.use(combined)
+
+    app.listen(':3000')
+}
+```
+
+### Context Store
+
+Store and retrieve data within request context:
+
+```v
+import meiseayoung.hono
+
+fn main() {
+    mut app := hono.Hono.new()
+
+    // Auth middleware stores user info
+    app.use(fn (mut c hono.Context, next fn (mut hono.Context) http.Response) http.Response {
+        c.set('user_id', '12345')
+        c.set('role', 'admin')
+        return next(mut c)
+    })
+
+    app.get('/profile', fn (mut c hono.Context) http.Response {
+        user_id := c.get('user_id') or { 'unknown' }
+        role := c.get('role') or { 'guest' }
+        client_ip := c.get_client_ip()
+        return c.json('{"user_id": "${user_id}", "role": "${role}", "ip": "${client_ip}"}')
+    })
+
+    app.listen(':3000')
+}
+```
+
 ## Route Grouping
 
 ```v
@@ -293,6 +716,14 @@ v-hono/
 ├── auth.v             # Authentication system
 ├── auth_routes.v      # Auth route handlers
 ├── error_handler.v    # Error handling
+├── middleware.v       # Middleware exports and utilities
+├── cors.v             # CORS middleware
+├── cookie.v           # Cookie helper
+├── jwt.v              # JWT middleware
+├── bearer_auth.v      # Bearer auth middleware
+├── compress.v         # Compression middleware
+├── rate_limit.v       # Rate limiting middleware
+├── validator.v        # Request validation
 ├── v.mod              # Module definition
 ├── README.md          # Documentation
 ├── examples/          # Example applications
@@ -306,6 +737,7 @@ See the `examples/` directory for more examples:
 
 - `examples/basic/` - Basic usage
 - `examples/middleware/` - Middleware usage
+- `examples/middleware_demo.v` - Built-in middleware demonstration
 - `examples/route_grouping/` - Route grouping
 - `examples/redirect_demo.v` - Redirect functionality examples
 

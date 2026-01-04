@@ -45,3 +45,5 @@ temp/
 
 # Chunk upload temp files
 chunks/
+
+.kiro

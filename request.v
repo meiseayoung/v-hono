@@ -17,6 +17,7 @@ pub mut:
 	status_code int = 200
 	headers     map[string]string
 	body        string
+	store       map[string]string  // 中间件数据存储
 }
 
 // Context 构造函数
@@ -35,6 +36,7 @@ pub fn Context.new(req http.Request, params map[string]string, query map[string]
 		url: url.str()  // 设置为完整的URL字符串
 		path: url.path  // 设置 path 属性
 		headers: map[string]string{}
+		store: map[string]string{}  // 初始化中间件数据存储
 	}
 }
 
@@ -254,6 +256,48 @@ fn generate_file_etag(content string, mod_time i64) string {
 
 pub fn (mut c Context) status(code int) {
 	c.status_code = code
+}
+
+// get 方法 - 从 store 中获取中间件数据
+pub fn (c Context) get(key string) ?string {
+	if key in c.store {
+		return c.store[key]
+	}
+	return none
+}
+
+// set 方法 - 向 store 中存储中间件数据
+pub fn (mut c Context) set(key string, value string) {
+	c.store[key] = value
+}
+
+// get_client_ip 方法 - 获取客户端 IP 地址
+// 优先从 X-Forwarded-For 和 X-Real-IP 头获取，否则从连接信息获取
+pub fn (c Context) get_client_ip() string {
+	// 尝试从 X-Forwarded-For 头获取（代理场景）
+	if forwarded_for := c.req.header.get_custom('X-Forwarded-For') {
+		// X-Forwarded-For 可能包含多个 IP，取第一个
+		ips := forwarded_for.split(',')
+		if ips.len > 0 {
+			ip := ips[0].trim_space()
+			if ip != '' {
+				return ip
+			}
+		}
+	}
+	
+	// 尝试从 X-Real-IP 头获取
+	if real_ip := c.req.header.get_custom('X-Real-IP') {
+		trimmed := real_ip.trim_space()
+		if trimmed != '' {
+			return trimmed
+		}
+	}
+	
+	// 从请求 URL 或连接信息获取
+	// 注意：V 语言的 http.Request 可能没有直接的远程地址字段
+	// 这里返回一个默认值，实际使用时可能需要根据服务器实现调整
+	return '127.0.0.1'
 }
 
 // redirect method - redirect to a URL with optional status code
