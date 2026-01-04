@@ -7,8 +7,8 @@ $if windows {
 	#flag -DLIBUS_USE_LIBUV
 	#flag -DLIBUS_NO_SSL
 	#flag -I@VMODROOT/usockets/include
-	#flag -L@VMODROOT/lib
-	#flag @VMODROOT/lib/libusockets_full.a
+	#flag -L@VMODROOT/usockets/lib
+	#flag @VMODROOT/usockets/lib/libusockets_full.a
 	#flag -lws2_32 -liphlpapi -lpsapi -luserenv -lole32
 } $else $if macos {
 	// macOS: 支持 Apple Silicon (M1/M2/M3) 和 Intel Mac
@@ -26,16 +26,16 @@ $if windows {
 	
 	// uSockets 库路径
 	#flag -I@VMODROOT/usockets/include
-	#flag -L@VMODROOT/lib
-	#flag @VMODROOT/lib/libusockets_full.a
+	#flag -L@VMODROOT/usockets/lib
+	#flag @VMODROOT/usockets/lib/libusockets_full.a
 	#flag -luv
 } $else {
 	// Linux 和其他平台
 	#flag -DLIBUS_USE_LIBUV
 	#flag -DLIBUS_NO_SSL
 	#flag -I@VMODROOT/usockets/include
-	#flag -L@VMODROOT/lib
-	#flag @VMODROOT/lib/libusockets_full.a
+	#flag -L@VMODROOT/usockets/lib
+	#flag @VMODROOT/usockets/lib/libusockets_full.a
 	#flag -luv
 }
 
