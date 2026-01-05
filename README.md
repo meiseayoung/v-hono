@@ -50,8 +50,13 @@ cd v-hono
 ### Standard Build (picoev backend)
 
 ```bash
-v your_app.v -o app.exe
-./app.exe
+# macOS / Linux
+v -prod -o app your_app.v
+./app
+
+# Windows
+v -o app.exe your_app.v
+.\app.exe
 ```
 
 ### High-Performance Build (uSockets backend)
@@ -59,25 +64,33 @@ v your_app.v -o app.exe
 For maximum performance with uSockets backend:
 
 ```bash
-v -enable-globals -cc gcc -ldflags "-ldbghelp" your_app.v -o app.exe
-./app.exe
+# macOS / Linux
+v -enable-globals -prod -o app your_app.v
+./app
+
+# Windows (must use gcc, tcc does not support .a static library format)
+v -enable-globals -cc gcc -ldflags "-ldbghelp" -o app.exe your_app.v
+.\app.exe
 ```
 
-**Note**: The `-enable-globals` flag is required for uSockets backend. The `-ldflags "-ldbghelp"` fixes Windows linking issues.
+**Important Notes:**
+- The `-enable-globals` flag is required for uSockets backend
+- On Windows, you **must** use `-cc gcc` because V's default compiler (tcc) does not support MinGW `.a` static library format
+- The `-ldflags "-ldbghelp"` is required on Windows for libuv linking
 
 #### Windows Prerequisites
 
 To use uSockets backend on Windows, you need:
 
-1. **GCC (MinGW-w64)** - C compiler
+1. **GCC (MinGW-w64)** - C compiler (required, tcc is not supported)
    ```powershell
-   # Install via Scoop
+   # Install via Scoop (recommended)
    scoop install mingw
    
    # Or via Chocolatey
    choco install mingw
    
-   # Or download from: https://www.mingw-w64.org/downloads/
+   # Or download w64devkit from: https://github.com/skeeto/w64devkit/releases
    ```
 
 2. **V Compiler** - Version 0.4.x or later
@@ -94,7 +107,11 @@ To use uSockets backend on Windows, you need:
    v version       # Should show V 0.4.x
    ```
 
-The uSockets library and libuv are pre-compiled and included in the `usockets/lib/` directory.
+The uSockets library and libuv are pre-compiled and included in the `usockets/lib/{platform}/` directory:
+- `usockets/lib/windows/` - Windows x64
+- `usockets/lib/linux/` - Linux x64
+- `usockets/lib/macos-arm64/` - macOS Apple Silicon
+- `usockets/lib/macos-x64/` - macOS Intel
 
 ### Using uSockets Backend
 
