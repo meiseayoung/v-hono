@@ -448,21 +448,49 @@ func checkKeepAlive(client *http.Client) bool {
 
 func checkThroughput(client *http.Client) float64 {
 	start := time.Now()
-	success := 0
-	requests := 200
+	concurrency := 1000
+	totalRequests := 1000000
+	requestsPerWorker := totalRequests / concurrency
 
-	for i := 0; i < requests; i++ {
-		resp, err := client.Get(baseURL + "/health")
-		if err != nil {
-			continue
-		}
-		io.Copy(io.Discard, resp.Body)
-		resp.Body.Close()
-		if resp.StatusCode == 200 {
-			success++
-		}
+	// 创建共享的 Transport，启用连接池复用
+	transport := &http.Transport{
+		MaxIdleConns:        concurrency,
+		MaxIdleConnsPerHost: concurrency,
+		IdleConnTimeout:     30 * time.Second,
+		DisableKeepAlives:   false,
+	}
+
+	results := make(chan int, concurrency)
+
+	for i := 0; i < concurrency; i++ {
+		go func() {
+			localSuccess := 0
+			// 每个 goroutine 使用独立 Client，但共享 Transport（连接池）
+			localClient := &http.Client{
+				Timeout:   10 * time.Second,
+				Transport: transport,
+			}
+			for j := 0; j < requestsPerWorker; j++ {
+				resp, err := localClient.Get(baseURL + "/health")
+				if err != nil {
+					continue
+				}
+				io.Copy(io.Discard, resp.Body)
+				resp.Body.Close()
+				if resp.StatusCode == 200 {
+					localSuccess++
+				}
+			}
+			results <- localSuccess
+		}()
+	}
+
+	success := 0
+	for i := 0; i < concurrency; i++ {
+		success += <-results
 	}
 
 	elapsed := time.Since(start).Seconds()
+	fmt.Printf("\n    [并发: %d, 总请求: %d, 成功: %d, 耗时: %.2fs]\n    ", concurrency, totalRequests, success, elapsed)
 	return float64(success) / elapsed
 }

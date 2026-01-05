@@ -2,41 +2,36 @@ module usockets
 
 // 条件编译：根据操作系统选择正确的路径和库
 // @VMODROOT 指向包含 v.mod 的模块根目录 (v-hono/)
+// 预编译库按平台存放在 usockets/lib/{platform}/ 目录
 
 $if windows {
 	#flag -DLIBUS_USE_LIBUV
 	#flag -DLIBUS_NO_SSL
 	#flag -I@VMODROOT/usockets/include
-	#flag -L@VMODROOT/usockets/lib
-	#flag @VMODROOT/usockets/lib/libusockets_full.a
-	#flag -lws2_32 -liphlpapi -lpsapi -luserenv -lole32
+	#flag -L@VMODROOT/usockets/lib/windows
+	#flag @VMODROOT/usockets/lib/windows/libusockets_full.a
+	#flag -lws2_32 -liphlpapi -lpsapi -luserenv -lole32 -ldbghelp
 } $else $if macos {
-	// macOS: 支持 Apple Silicon (M1/M2/M3) 和 Intel Mac
 	#flag -DLIBUS_USE_LIBUV
 	#flag -DLIBUS_NO_SSL
-	
-	// libuv 路径 - 根据架构选择 Homebrew 路径
-	$if arm64 {
-		#flag -I/opt/homebrew/include
-		#flag -L/opt/homebrew/lib
-	} $else {
-		#flag -I/usr/local/include
-		#flag -L/usr/local/lib
-	}
-	
-	// uSockets 库路径
 	#flag -I@VMODROOT/usockets/include
-	#flag -L@VMODROOT/usockets/lib
-	#flag @VMODROOT/usockets/lib/libusockets_full.a
-	#flag -luv
+	
+	$if arm64 {
+		// Apple Silicon (M1/M2/M3)
+		#flag -L@VMODROOT/usockets/lib/macos-arm64
+		#flag @VMODROOT/usockets/lib/macos-arm64/libusockets_full.a
+	} $else {
+		// Intel Mac
+		#flag -L@VMODROOT/usockets/lib/macos-x64
+		#flag @VMODROOT/usockets/lib/macos-x64/libusockets_full.a
+	}
 } $else {
 	// Linux 和其他平台
 	#flag -DLIBUS_USE_LIBUV
 	#flag -DLIBUS_NO_SSL
 	#flag -I@VMODROOT/usockets/include
-	#flag -L@VMODROOT/usockets/lib
-	#flag @VMODROOT/usockets/lib/libusockets_full.a
-	#flag -luv
+	#flag -L@VMODROOT/usockets/lib/linux
+	#flag @VMODROOT/usockets/lib/linux/libusockets_full.a
 }
 
 #include "libusockets.h"
@@ -105,8 +100,6 @@ pub fn (ctx SocketContext) on_writable(h voidptr) { C.us_socket_context_on_writa
 pub fn (ctx SocketContext) on_timeout(h voidptr) { C.us_socket_context_on_timeout(0, ctx, h) }
 pub fn (ctx SocketContext) on_end(h voidptr) { C.us_socket_context_on_end(0, ctx, h) }
 pub fn (ctx SocketContext) listen(port int) ListenSocket {
-	// 参数: ssl=0, context, host=nil, port, options=LIBUS_LISTEN_DEFAULT(0), socket_ext_size=0
-	// 注意: backlog 是在 uSockets 库内部硬编码的，不通过此函数传递
 	return C.us_socket_context_listen(0, ctx, unsafe { nil }, port, 0, 0)
 }
 
