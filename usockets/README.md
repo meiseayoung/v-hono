@@ -58,27 +58,57 @@ fn main() {
 ## Build Command
 
 ```bash
-v -enable-globals -cc gcc -ldflags "-ldbghelp" your_app.v -o app.exe
+# macOS / Linux
+v -enable-globals -prod -o app your_app.v
+./app
+
+# Windows (must use gcc, tcc does not support .a static library format)
+v -enable-globals -cc gcc -ldflags "-ldbghelp" -o app.exe your_app.v
+.\app.exe
 ```
 
 **Required flags:**
 - `-enable-globals` - Required for uSockets global state
-- `-cc gcc` - Use GCC compiler (MinGW-w64 on Windows)
-- `-ldflags "-ldbghelp"` - Fix Windows linking (Windows only)
+- `-cc gcc` - Use GCC compiler (MinGW-w64 on Windows, required because V's default compiler tcc does not support MinGW `.a` static library format)
+- `-ldflags "-ldbghelp"` - Required on Windows for libuv linking
 
 ## Prerequisites (Windows)
 
-1. **GCC (MinGW-w64)**
+To use uSockets backend on Windows, you need:
+
+1. **GCC (MinGW-w64)** - C compiler (required, tcc is not supported)
    ```powershell
+   # Install via Scoop (recommended)
    scoop install mingw
-   # or
+   
+   # Or via Chocolatey
    choco install mingw
+   
+   # Or download w64devkit from: https://github.com/skeeto/w64devkit/releases
    ```
 
-2. **V Compiler** (0.4.x or later)
+2. **V Compiler** - Version 0.4.x or later
    ```powershell
+   # Install via Scoop
    scoop install vlang
+   
+   # Or download from: https://vlang.io/
    ```
+
+3. **Verify Installation**
+   ```powershell
+   gcc --version   # Should show MinGW-w64 GCC
+   v version       # Should show V 0.4.x
+   ```
+
+## Pre-compiled Libraries
+
+The uSockets library and libuv are pre-compiled and included in the `lib/{platform}/` directory:
+
+- `lib/windows/` - Windows x64
+- `lib/linux/` - Linux x64
+- `lib/macos-arm64/` - macOS Apple Silicon
+- `lib/macos-x64/` - macOS Intel
 
 ## Directory Structure
 
@@ -89,10 +119,15 @@ usockets/
 │   ├── uv.h           # libuv API
 │   └── uv/            # libuv headers
 ├── lib/               # Pre-compiled libraries
-│   ├── libusockets_full.a  # uSockets + libuv (main)
-│   ├── libuv.a             # libuv static lib
-│   └── ...
-└── usockets.v         # V bindings
+│   ├── windows/       # Windows x64
+│   ├── linux/         # Linux x64
+│   ├── macos-arm64/   # macOS Apple Silicon
+│   └── macos-x64/     # macOS Intel
+├── src/               # Modified source files
+│   └── bsd.c          # Modified with backlog=16384
+├── build.sh           # Build script
+├── usockets.v         # V bindings
+└── README.md          # This file
 ```
 
 ## Configuration
@@ -105,6 +140,104 @@ app.listen_usockets_with_config(meiseayoung.hono.UsocketsConfig{
     keepalive_timeout: 30
     max_keepalive_req: 10000
 })
+```
+
+## Building uSockets Library from Source
+
+If you need to rebuild the uSockets library (e.g., for a different platform or custom modifications), use the provided build script.
+
+### Build Prerequisites
+
+- **Git** - For cloning source repositories
+- **GCC** - C compiler
+- **CMake** - For building libuv
+- **ar** - Archive tool (included with GCC)
+
+#### Installing Prerequisites
+
+**macOS:**
+```bash
+xcode-select --install
+brew install cmake
+```
+
+**Linux (Ubuntu/Debian):**
+```bash
+sudo apt update
+sudo apt install build-essential cmake git
+```
+
+**Linux (CentOS/RHEL):**
+```bash
+sudo yum groupinstall "Development Tools"
+sudo yum install cmake git
+```
+
+**Windows (Git Bash/MSYS2):**
+```powershell
+# Install via Scoop
+scoop install mingw cmake git
+
+# Or via Chocolatey
+choco install mingw cmake git
+```
+
+### Running the Build Script
+
+```bash
+cd usockets
+chmod +x build.sh
+./build.sh
+```
+
+The script will:
+1. Clone uSockets and libuv repositories to `/tmp/`
+2. Apply the backlog=16384 modification for high concurrency
+3. Compile libuv as a static library
+4. Compile uSockets with libuv support
+5. Merge both libraries into `libusockets_full.a`
+6. Output to the appropriate `lib/{platform}/` directory
+
+### Build Script Details
+
+The build script (`build.sh`) automatically:
+- Detects your operating system (Windows/macOS/Linux)
+- Detects CPU architecture (x64/arm64 on macOS)
+- Applies the backlog modification from `src/bsd.c`
+- Compiles with optimizations (`-O3`)
+- Creates a merged static library containing both uSockets and libuv
+
+### Custom Modifications
+
+To customize the build:
+
+1. **Change backlog size**: Edit `src/bsd.c` and modify the `listen()` call
+2. **Enable SSL**: Remove `-DLIBUS_NO_SSL` from the build script and link OpenSSL
+3. **Use different event loop**: Modify `-DLIBUS_USE_LIBUV` flag
+
+### Troubleshooting Build Issues
+
+**CMake not found:**
+```bash
+# macOS
+brew install cmake
+
+# Linux
+sudo apt install cmake  # or sudo yum install cmake
+
+# Windows
+scoop install cmake
+```
+
+**GCC not found (Windows):**
+```powershell
+scoop install mingw
+# Make sure MinGW bin directory is in PATH
+```
+
+**Permission denied:**
+```bash
+chmod +x build.sh
 ```
 
 ## Notes
