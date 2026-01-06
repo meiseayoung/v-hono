@@ -183,7 +183,7 @@ fn handle_usockets_ws_upgrade(s usockets.Socket, raw_data string, route_match Co
 	// Check if this is a WebSocket upgrade response
 	if response.status_code != 101 {
 		// Not a WebSocket upgrade, send the response as-is
-		send_usockets_response(s, mutable_ctx, response)
+		send_usockets_response(s, mutable_ctx, response, true)
 		return false
 	}
 	
@@ -227,7 +227,7 @@ fn usockets_on_data(s usockets.Socket, data &char, length int) usockets.Socket {
 
 	// 解析 HTTP 请求
 	raw_data := unsafe { tos(&u8(data), length) }
-	method, path, query_map, body := parse_http_request_usockets(raw_data)
+	method, path, query_map, body, is_http11 := parse_http_request_usockets(raw_data)
 	
 	if method.len == 0 {
 		s.write_bytes('HTTP/1.1 400 Bad Request\r\nContent-Length: 11\r\n\r\nBad Request')
@@ -259,11 +259,11 @@ fn usockets_on_data(s usockets.Socket, data &char, length int) usockets.Socket {
 			// 优化1：零中间件快速路径
 			if !g_usockets_app.has_middlewares {
 				response := route_match.handler.handle(mut hono_ctx)
-				send_usockets_response(s, hono_ctx, response)
+				send_usockets_response(s, hono_ctx, response, is_http11)
 			} else {
 				middlewares := get_middlewares_for_path_usockets_optimized(g_usockets_app, path)
 				response := exec_middlewares_usockets(0, middlewares, mut hono_ctx, route_match.handler)
-				send_usockets_response(s, hono_ctx, response)
+				send_usockets_response(s, hono_ctx, response, is_http11)
 			}
 			response_sent = true
 		}
@@ -289,11 +289,11 @@ fn usockets_on_data(s usockets.Socket, data &char, length int) usockets.Socket {
 			// 优化1：零中间件快速路径
 			if !g_usockets_app.has_middlewares {
 				response := route_match.handler.handle(mut hono_ctx)
-				send_usockets_response(s, hono_ctx, response)
+				send_usockets_response(s, hono_ctx, response, is_http11)
 			} else {
 				middlewares := get_middlewares_for_path_usockets_optimized(g_usockets_app, path)
 				response := exec_middlewares_usockets(0, middlewares, mut hono_ctx, route_match.handler)
-				send_usockets_response(s, hono_ctx, response)
+				send_usockets_response(s, hono_ctx, response, is_http11)
 			}
 			response_sent = true
 		}
@@ -305,9 +305,13 @@ fn usockets_on_data(s usockets.Socket, data &char, length int) usockets.Socket {
 
 		if handler := g_usockets_app.not_found_handler {
 			response := handler(mut hono_ctx)
-			send_usockets_response(s, hono_ctx, response)
+			send_usockets_response(s, hono_ctx, response, is_http11)
 		} else {
-			s.write_bytes('HTTP/1.1 404 Not Found\r\nContent-Type: text/plain\r\nContent-Length: 9\r\nConnection: keep-alive\r\n\r\nNot Found')
+			conn_header := if is_http11 { 'keep-alive' } else { 'close' }
+			s.write_bytes('HTTP/1.1 404 Not Found\r\nContent-Type: text/plain\r\nContent-Length: 9\r\nConnection: ${conn_header}\r\n\r\nNot Found')
+			if !is_http11 {
+				s.shutdown()
+			}
 		}
 	}
 
@@ -334,15 +338,17 @@ fn usockets_on_end(s usockets.Socket) usockets.Socket {
 
 // 解析 HTTP 请求 - 零分配优化版
 // 使用指针遍历避免创建临时数组
-fn parse_http_request_usockets(raw string) (string, string, map[string]string, string) {
+// 返回: (method, path, query_map, body, is_http11)
+fn parse_http_request_usockets(raw string) (string, string, map[string]string, string, bool) {
 	mut method := ''
 	mut path := ''
 	mut query_map := map[string]string{}
 	mut body := ''
+	mut is_http11 := true
 	
 	len := raw.len
 	if len == 0 {
-		return method, path, query_map, body
+		return method, path, query_map, body, is_http11
 	}
 	
 	// 1. 查找第一行结束位置（\r\n）
@@ -354,7 +360,7 @@ fn parse_http_request_usockets(raw string) (string, string, map[string]string, s
 		}
 	}
 	if line_end == -1 {
-		return method, path, query_map, body
+		return method, path, query_map, body, is_http11
 	}
 	
 	// 2. 解析 method（到第一个空格）
@@ -363,7 +369,7 @@ fn parse_http_request_usockets(raw string) (string, string, map[string]string, s
 		method_end++
 	}
 	if method_end == 0 || method_end >= line_end {
-		return method, path, query_map, body
+		return method, path, query_map, body, is_http11
 	}
 	method = raw[..method_end]
 	
@@ -391,7 +397,18 @@ fn parse_http_request_usockets(raw string) (string, string, map[string]string, s
 		path = raw[path_start..path_end]
 	}
 	
-	// 4. 查找 body（\r\n\r\n 之后）
+	// 4. 检测 HTTP 版本 - "HTTP/1.0" vs "HTTP/1.1"
+	// 请求行格式: "GET /path HTTP/1.1\r\n"
+	mut version_start := path_end + 1
+	for version_start < line_end && raw[version_start] == ` ` {
+		version_start++
+	}
+	if version_start < line_end {
+		version_str := raw[version_start..line_end]
+		is_http11 = !version_str.contains('1.0')
+	}
+	
+	// 5. 查找 body（\r\n\r\n 之后）
 	for i in line_end .. len - 3 {
 		if raw[i] == `\r` && raw[i + 1] == `\n` && raw[i + 2] == `\r` && raw[i + 3] == `\n` {
 			if i + 4 < len {
@@ -401,7 +418,7 @@ fn parse_http_request_usockets(raw string) (string, string, map[string]string, s
 		}
 	}
 	
-	return method, path, query_map, body
+	return method, path, query_map, body, is_http11
 }
 
 // 快速解析 query string（单次遍历，避免 split）
@@ -576,7 +593,7 @@ fn exec_middlewares_usockets(idx int, middlewares []ContextMiddleware, mut ctx C
 }
 
 // 发送 uSockets 响应 - 优化版
-fn send_usockets_response(s usockets.Socket, ctx Context, response http.Response) {
+fn send_usockets_response(s usockets.Socket, ctx Context, response http.Response, is_http11 bool) {
 	// Check if this is a streaming response
 	if is_streaming_response(ctx) {
 		// Handle streaming response
@@ -630,14 +647,25 @@ fn send_usockets_response(s usockets.Socket, ctx Context, response http.Response
 	resp.write_string(response.body.len.str())
 	resp.write_string('\r\n')
 
-	// Connection
-	resp.write_string('Connection: keep-alive\r\n')
+	// Connection - HTTP/1.0 用 close，HTTP/1.1 用 keep-alive
+	if is_http11 {
+		resp.write_string('Connection: keep-alive\r\n')
+	} else {
+		resp.write_string('Connection: close\r\n')
+	}
 
 	// 空行 + body
 	resp.write_string('\r\n')
 	resp.write_string(response.body)
 
 	s.write_bytes(resp.str())
+	
+	// HTTP/1.0 请求完成后关闭连接
+	// 只调用 shutdown() 发送 FIN，让 on_end 回调处理 close()
+	// 这样可以确保发送缓冲区的数据完全发送
+	if !is_http11 {
+		s.shutdown()
+	}
 }
 
 // ============================================================================
