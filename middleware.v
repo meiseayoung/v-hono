@@ -11,7 +11,7 @@ import rand
 // 中间件导出说明
 // ============================================================================
 //
-// 本框架提供以下 8 个内置中间件：
+// 本框架提供以下 9 个内置中间件：
 //
 // 1. CORS 中间件 (cors.v)
 //    - cors(options ...CorsOptions) ContextMiddleware
@@ -81,6 +81,57 @@ import rand
 //    - compute_accept_key(key string) string: 计算 Sec-WebSocket-Accept
 //    - encode_ws_frame(opcode u8, payload []u8, masked bool) []u8: 编码 WebSocket 帧
 //    - decode_ws_frame(data []u8) !WSFrame: 解码 WebSocket 帧
+//
+// 9. Swagger UI 中间件 (swagger.v)
+//    - swagger_ui(options ...SwaggerUIOptions) fn (mut Context) http.Response
+//    - swagger_ui_handler(options ...SwaggerUIOptions) fn (mut Context) http.Response
+//    - 用于提供交互式 API 文档界面
+//
+//    Types:
+//    - SwaggerUIOptions: 配置选项
+//      - url: OpenAPI 文档 URL (默认: '/doc')
+//      - title: 页面标题 (默认: 'API Documentation')
+//      - deep_linking: 启用深度链接 (默认: true)
+//      - display_request_duration: 显示请求耗时 (默认: true)
+//      - default_models_expand_depth: 模型展开深度 (默认: 1)
+//      - doc_expansion: 文档展开方式 ('list', 'full', 'none')
+//      - filter: 启用过滤
+//      - show_extensions: 显示扩展
+//      - show_common_extensions: 显示常用扩展 (默认: true)
+//      - try_it_out_enabled: 启用 Try it out (默认: true)
+//      - custom_css: 自定义 CSS
+//      - custom_js: 自定义 JavaScript
+//      - custom_css_url: 自定义 CSS URL
+//      - custom_js_url: 自定义 JavaScript URL
+//
+//    OpenAPI 文档相关 (openapi.v):
+//    - OpenAPIDocument: OpenAPI 文档主结构
+//    - OpenAPIBuilder: 流式 API 构建器
+//    - app.doc(path, spec): 注册 OpenAPI 文档路由
+//    - app.doc_fn(path, builder): 使用构建器函数注册文档路由
+//    - app.get_routes(): 获取应用的所有路由信息
+//
+//    使用示例:
+//      // 1. 创建 OpenAPI 文档
+//      spec := hono.OpenAPIBuilder.new()
+//          .openapi('3.0.0')
+//          .title('My API')
+//          .version('1.0.0')
+//          .description('API description')
+//          .server('https://api.example.com', 'Production')
+//          .path('/users')
+//              .get(hono.OpenAPIOperation{
+//                  summary: 'Get all users'
+//                  responses: { '200': hono.OpenAPIResponse{ description: 'Success' } }
+//              })
+//              .done()
+//          .build()!
+//
+//      // 2. 注册 OpenAPI 文档路由
+//      app.doc('/doc', spec)
+//
+//      // 3. 注册 Swagger UI 路由
+//      app.get('/ui', hono.swagger_ui(hono.SwaggerUIOptions{ url: '/doc' }))
 //
 // ============================================================================
 
@@ -291,6 +342,63 @@ pub fn timing() ContextMiddleware {
 		
 		return response
 	}
+}
+
+
+// ============================================================================
+// Swagger UI 中间件导出
+// ============================================================================
+//
+// Swagger UI 中间件提供交互式 API 文档界面，支持 OpenAPI 3.0/3.1 规范。
+// 主要功能通过 swagger.v 和 openapi.v 文件导出，包括：
+//
+// 核心函数:
+//   - swagger_ui(options...) - 创建 Swagger UI 处理器
+//   - swagger_ui_handler(options...) - swagger_ui 的别名
+//   - app.doc(path, spec) - 注册 OpenAPI 文档路由
+//   - app.doc_fn(path, builder) - 使用构建器函数注册文档路由
+//
+// 类型定义:
+//   - SwaggerUIOptions - Swagger UI 配置选项
+//   - OpenAPIDocument - OpenAPI 文档主结构
+//   - OpenAPIBuilder - 流式 API 构建器
+//   - OpenAPIInfo, OpenAPIServer, OpenAPIPathItem, OpenAPIOperation 等
+//
+// 使用示例:
+//   // 创建 OpenAPI 文档
+//   spec := hono.OpenAPIBuilder.new()
+//       .openapi('3.0.0')
+//       .title('My API')
+//       .version('1.0.0')
+//       .build()!
+//
+//   // 注册文档和 UI 路由
+//   app.doc('/doc', spec)
+//   app.get('/ui', hono.swagger_ui(hono.SwaggerUIOptions{ url: '/doc' }))
+//
+// 带自定义选项:
+//   app.get('/swagger', hono.swagger_ui(hono.SwaggerUIOptions{
+//       url: '/api/doc'
+//       title: 'My API Documentation'
+//       deep_linking: true
+//       display_request_duration: true
+//       doc_expansion: 'list'
+//       try_it_out_enabled: true
+//   }))
+// ============================================================================
+
+// swagger - Swagger UI 处理器的简短别名
+// 使用示例:
+//   app.get('/docs', hono.swagger(hono.SwaggerUIOptions{ url: '/doc' }))
+pub fn swagger(options ...SwaggerUIOptions) fn (mut Context) http.Response {
+	return swagger_ui(...options)
+}
+
+// openapi_ui - Swagger UI 处理器的另一个别名
+// 使用示例:
+//   app.get('/api-docs', hono.openapi_ui(hono.SwaggerUIOptions{ url: '/openapi.json' }))
+pub fn openapi_ui(options ...SwaggerUIOptions) fn (mut Context) http.Response {
+	return swagger_ui(...options)
 }
 
 

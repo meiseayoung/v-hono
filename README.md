@@ -20,6 +20,7 @@ A high-performance V language web framework inspired by [Hono.js](https://hono.d
 - 🗄️ **Database** - SQLite integration for data persistence
 - 🔌 **WebSocket** - RFC 6455 compliant WebSocket support with event-based API
 - 📡 **SSE Streaming** - Server-Sent Events and streaming response support
+- 📖 **Swagger UI** - Interactive API documentation with OpenAPI 3.0/3.1 support
 
 ## Installation
 
@@ -1014,6 +1015,201 @@ eventSource.onerror = (e) => {
 </script>
 ```
 
+### 10. Swagger UI
+
+Interactive API documentation with OpenAPI 3.0/3.1 specification support.
+
+#### Basic Usage
+
+```v
+import meiseayoung.hono
+
+fn main() {
+    mut app := hono.Hono.new()
+
+    // Build OpenAPI specification using the fluent builder API
+    spec := hono.OpenAPIBuilder.new()
+        .openapi('3.0.0')
+        .title('My API')
+        .version('1.0.0')
+        .description('API documentation')
+        .server('http://localhost:3000', 'Development server')
+        .path('/users')
+            .get(hono.OpenAPIOperation{
+                summary: 'List all users'
+                tags: ['users']
+                responses: {
+                    '200': hono.OpenAPIResponse{
+                        description: 'A list of users'
+                    }
+                }
+            })
+            .done()
+        .build() or {
+            eprintln('Failed to build spec: ${err}')
+            return
+        }
+
+    // Register OpenAPI JSON endpoint
+    app.doc('/doc', spec)
+
+    // Serve Swagger UI
+    app.get('/ui', hono.swagger_ui(hono.SwaggerUIOptions{
+        url: '/doc'
+        title: 'My API Documentation'
+    }))
+
+    app.listen(':3000')
+}
+```
+
+#### OpenAPI Builder API
+
+```v
+import meiseayoung.hono
+
+// Build a complete OpenAPI specification
+spec := hono.OpenAPIBuilder.new()
+    .openapi('3.0.0')                              // OpenAPI version
+    .title('Pet Store API')                        // API title
+    .version('1.0.0')                              // API version
+    .description('A sample API')                   // Description
+    .server('https://api.example.com', 'Production')  // Server URL
+    .tag('pets', 'Pet operations')                 // Tag definition
+    // Define path with multiple operations
+    .path('/pets')
+        .get(hono.OpenAPIOperation{
+            summary: 'List pets'
+            operation_id: 'listPets'
+            tags: ['pets']
+            parameters: [
+                hono.OpenAPIParameter{
+                    name: 'limit'
+                    in_location: 'query'
+                    schema: hono.OpenAPISchema{
+                        schema_type: 'integer'
+                    }
+                },
+            ]
+            responses: {
+                '200': hono.OpenAPIResponse{
+                    description: 'Success'
+                    content: {
+                        'application/json': hono.OpenAPIMediaType{
+                            schema: hono.OpenAPISchema{
+                                schema_type: 'array'
+                                items: &hono.OpenAPISchema{
+                                    ref: '#/components/schemas/Pet'
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        })
+        .post(hono.OpenAPIOperation{
+            summary: 'Create pet'
+            request_body: hono.OpenAPIRequestBody{
+                required: true
+                content: {
+                    'application/json': hono.OpenAPIMediaType{
+                        schema: hono.OpenAPISchema{
+                            ref: '#/components/schemas/NewPet'
+                        }
+                    }
+                }
+            }
+            responses: {
+                '201': hono.OpenAPIResponse{
+                    description: 'Created'
+                }
+            }
+        })
+        .done()
+    // Add reusable schemas
+    .add_schema('Pet', hono.OpenAPISchema{
+        schema_type: 'object'
+        required: ['id', 'name']
+        properties: {
+            'id': hono.OpenAPISchema{
+                schema_type: 'integer'
+            }
+            'name': hono.OpenAPISchema{
+                schema_type: 'string'
+            }
+        }
+    })
+    .build()!
+```
+
+#### Swagger UI Options
+
+```v
+import meiseayoung.hono
+
+// Customize Swagger UI appearance and behavior
+app.get('/docs', hono.swagger_ui(hono.SwaggerUIOptions{
+    url: '/doc'                        // OpenAPI JSON URL
+    title: 'API Documentation'         // Page title
+    deep_linking: true                 // Enable deep linking
+    display_request_duration: true     // Show request duration
+    default_models_expand_depth: 2     // Model expansion depth
+    doc_expansion: 'list'              // 'list', 'full', or 'none'
+    filter: true                       // Enable filtering
+    show_extensions: true              // Show extensions
+    show_common_extensions: true       // Show common extensions
+    try_it_out_enabled: true           // Enable Try it out
+    custom_css: '.topbar { background: #2c3e50; }'  // Custom CSS
+}))
+```
+
+#### SwaggerUIOptions Reference
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `url` | `string` | `'/doc'` | OpenAPI document URL |
+| `title` | `string` | `'API Documentation'` | Page title |
+| `deep_linking` | `bool` | `true` | Enable deep linking to operations |
+| `display_request_duration` | `bool` | `true` | Show request duration |
+| `default_models_expand_depth` | `int` | `1` | Model expansion depth |
+| `doc_expansion` | `string` | `'list'` | Document expansion: 'list', 'full', 'none' |
+| `filter` | `bool` | `false` | Enable operation filtering |
+| `show_extensions` | `bool` | `false` | Show vendor extensions |
+| `show_common_extensions` | `bool` | `true` | Show common extensions |
+| `try_it_out_enabled` | `bool` | `true` | Enable Try it out feature |
+| `custom_css` | `string` | `''` | Custom CSS styles |
+| `custom_js` | `string` | `''` | Custom JavaScript |
+| `custom_css_url` | `string` | `''` | Custom CSS URL |
+| `custom_js_url` | `string` | `''` | Custom JavaScript URL |
+
+#### OpenAPI Builder Methods
+
+| Method | Description |
+|--------|-------------|
+| `openapi(version)` | Set OpenAPI version (3.0.0, 3.1.0) |
+| `title(title)` | Set API title |
+| `version(version)` | Set API version |
+| `description(desc)` | Set API description |
+| `server(url, desc)` | Add server |
+| `tag(name, desc)` | Add tag |
+| `path(path)` | Start path builder |
+| `add_schema(name, schema)` | Add reusable schema |
+| `add_security_scheme(name, scheme)` | Add security scheme |
+| `build()` | Build and validate document |
+
+#### Path Builder Methods
+
+| Method | Description |
+|--------|-------------|
+| `get(op)` | Add GET operation |
+| `post(op)` | Add POST operation |
+| `put(op)` | Add PUT operation |
+| `delete(op)` | Add DELETE operation |
+| `patch(op)` | Add PATCH operation |
+| `head(op)` | Add HEAD operation |
+| `options(op)` | Add OPTIONS operation |
+| `done()` | Return to parent builder |
+
 ## Route Grouping
 
 ```v
@@ -1120,6 +1316,8 @@ v-hono/
 ├── validator.v        # Request validation
 ├── websocket.v        # WebSocket helper (RFC 6455)
 ├── streaming.v        # SSE streaming helper
+├── swagger.v          # Swagger UI middleware
+├── openapi.v          # OpenAPI 3.0/3.1 data structures and builder
 ├── picoev_server.v    # Picoev backend with WebSocket/SSE support
 ├── usockets_server.v  # uSockets backend with WebSocket/SSE support
 ├── v.mod              # Module definition
@@ -1138,6 +1336,7 @@ See the `examples/` directory for more examples:
 - `examples/middleware_demo.v` - Built-in middleware demonstration
 - `examples/route_grouping/` - Route grouping
 - `examples/redirect_demo.v` - Redirect functionality examples
+- `examples/swagger_demo.v` - Swagger UI and OpenAPI documentation
 
 ## License
 

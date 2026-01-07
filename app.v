@@ -578,6 +578,58 @@ pub fn Hono.new() Hono {
 	}
 }
 
+// ============================================================================
+// OpenAPI 文档便捷方法 (Task 9.1)
+// ============================================================================
+
+// doc - 注册 OpenAPI 文档路由
+// 在指定路径注册一个 GET 路由，返回 OpenAPI 文档的 JSON 格式
+// 设置 Content-Type: application/json
+// 使用示例:
+//   spec := OpenAPIBuilder.new()
+//       .openapi('3.0.0')
+//       .title('My API')
+//       .version('1.0.0')
+//       .build()!
+//   app.doc('/doc', spec)
+pub fn (mut app Hono) doc(path string, spec OpenAPIDocument) {
+	// 预序列化 OpenAPI 文档为 JSON 字符串
+	json_content := spec.to_json_str()
+	
+	// 注册 GET 路由返回 JSON
+	app.get(path, fn [json_content] (mut c Context) http.Response {
+		return http.Response{
+			status_code: 200
+			header:      http.new_header(key: .content_type, value: 'application/json; charset=utf-8')
+			body:        json_content
+		}
+	})
+}
+
+// doc_fn - 使用构建器函数注册 OpenAPI 文档路由
+// 允许延迟构建 OpenAPI 文档，每次请求时调用构建器函数
+// 使用示例:
+//   app.doc_fn('/doc', fn () OpenAPIDocument {
+//       return OpenAPIBuilder.new()
+//           .openapi('3.0.0')
+//           .title('My API')
+//           .version('1.0.0')
+//           .build() or { panic(err) }
+//   })
+pub fn (mut app Hono) doc_fn(path string, builder fn () OpenAPIDocument) {
+	app.get(path, fn [builder] (mut c Context) http.Response {
+		// 每次请求时调用构建器函数
+		spec := builder()
+		json_content := spec.to_json_str()
+		
+		return http.Response{
+			status_code: 200
+			header:      http.new_header(key: .content_type, value: 'application/json; charset=utf-8')
+			body:        json_content
+		}
+	})
+}
+
 // 快速解析 query string（单次遍历，避免 split）- app.v 版本
 @[inline]
 fn parse_query_string_app(query_str string) map[string]string {
