@@ -367,7 +367,7 @@ pub fn parse_close_frame(payload []u8) (int, string) {
 	mut reason := ''
 	
 	if payload.len >= 2 {
-		code = int(payload[0]) << 8 | int(payload[1])
+		code = int(u32(payload[0]) << 8) | int(payload[1])
 		if payload.len > 2 {
 			reason = payload[2..].bytestr()
 		}

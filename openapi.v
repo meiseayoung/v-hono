@@ -742,9 +742,9 @@ pub fn (doc OpenAPIDocument) to_json_pretty() string {
 pub fn OpenAPIContact.from_json(j json2.Any) OpenAPIContact {
 	obj := j.as_map()
 	return OpenAPIContact{
-		name: if 'name' in obj { obj['name'].str() } else { '' }
-		url: if 'url' in obj { obj['url'].str() } else { '' }
-		email: if 'email' in obj { obj['email'].str() } else { '' }
+		name: if 'name' in obj { obj['name'] or { json2.Any('') }.str() } else { '' }
+		url: if 'url' in obj { obj['url'] or { json2.Any('') }.str() } else { '' }
+		email: if 'email' in obj { obj['email'] or { json2.Any('') }.str() } else { '' }
 	}
 }
 
@@ -752,8 +752,8 @@ pub fn OpenAPIContact.from_json(j json2.Any) OpenAPIContact {
 pub fn OpenAPILicense.from_json(j json2.Any) OpenAPILicense {
 	obj := j.as_map()
 	return OpenAPILicense{
-		name: if 'name' in obj { obj['name'].str() } else { '' }
-		url: if 'url' in obj { obj['url'].str() } else { '' }
+		name: if 'name' in obj { obj['name'] or { json2.Any('') }.str() } else { '' }
+		url: if 'url' in obj { obj['url'] or { json2.Any('') }.str() } else { '' }
 	}
 }
 
@@ -761,12 +761,12 @@ pub fn OpenAPILicense.from_json(j json2.Any) OpenAPILicense {
 pub fn OpenAPIInfo.from_json(j json2.Any) OpenAPIInfo {
 	obj := j.as_map()
 	return OpenAPIInfo{
-		title: if 'title' in obj { obj['title'].str() } else { '' }
-		version: if 'version' in obj { obj['version'].str() } else { '' }
-		description: if 'description' in obj { obj['description'].str() } else { '' }
-		terms_of_service: if 'termsOfService' in obj { obj['termsOfService'].str() } else { '' }
-		contact: if 'contact' in obj { OpenAPIContact.from_json(obj['contact']) } else { OpenAPIContact{} }
-		license: if 'license' in obj { OpenAPILicense.from_json(obj['license']) } else { OpenAPILicense{} }
+		title: if 'title' in obj { obj['title'] or { json2.Any('') }.str() } else { '' }
+		version: if 'version' in obj { obj['version'] or { json2.Any('') }.str() } else { '' }
+		description: if 'description' in obj { obj['description'] or { json2.Any('') }.str() } else { '' }
+		terms_of_service: if 'termsOfService' in obj { obj['termsOfService'] or { json2.Any('') }.str() } else { '' }
+		contact: if 'contact' in obj { OpenAPIContact.from_json(obj['contact'] or { json2.Any('') }) } else { OpenAPIContact{} }
+		license: if 'license' in obj { OpenAPILicense.from_json(obj['license'] or { json2.Any('') }) } else { OpenAPILicense{} }
 	}
 }
 
@@ -774,8 +774,8 @@ pub fn OpenAPIInfo.from_json(j json2.Any) OpenAPIInfo {
 pub fn OpenAPIServer.from_json(j json2.Any) OpenAPIServer {
 	obj := j.as_map()
 	return OpenAPIServer{
-		url: if 'url' in obj { obj['url'].str() } else { '' }
-		description: if 'description' in obj { obj['description'].str() } else { '' }
+		url: if 'url' in obj { obj['url'] or { json2.Any('') }.str() } else { '' }
+		description: if 'description' in obj { obj['description'] or { json2.Any('') }.str() } else { '' }
 	}
 }
 
@@ -783,8 +783,8 @@ pub fn OpenAPIServer.from_json(j json2.Any) OpenAPIServer {
 pub fn OpenAPIExternalDocs.from_json(j json2.Any) OpenAPIExternalDocs {
 	obj := j.as_map()
 	return OpenAPIExternalDocs{
-		url: if 'url' in obj { obj['url'].str() } else { '' }
-		description: if 'description' in obj { obj['description'].str() } else { '' }
+		url: if 'url' in obj { obj['url'] or { json2.Any('') }.str() } else { '' }
+		description: if 'description' in obj { obj['description'] or { json2.Any('') }.str() } else { '' }
 	}
 }
 
@@ -792,9 +792,9 @@ pub fn OpenAPIExternalDocs.from_json(j json2.Any) OpenAPIExternalDocs {
 pub fn OpenAPITag.from_json(j json2.Any) OpenAPITag {
 	obj := j.as_map()
 	return OpenAPITag{
-		name: if 'name' in obj { obj['name'].str() } else { '' }
-		description: if 'description' in obj { obj['description'].str() } else { '' }
-		external_docs: if 'externalDocs' in obj { OpenAPIExternalDocs.from_json(obj['externalDocs']) } else { OpenAPIExternalDocs{} }
+		name: if 'name' in obj { obj['name'] or { json2.Any('') }.str() } else { '' }
+		description: if 'description' in obj { obj['description'] or { json2.Any('') }.str() } else { '' }
+		external_docs: if 'externalDocs' in obj { OpenAPIExternalDocs.from_json(obj['externalDocs'] or { json2.Any('') }) } else { OpenAPIExternalDocs{} }
 	}
 }
 
@@ -810,7 +810,7 @@ fn openapi_schema_from_json_impl(j json2.Any) OpenAPISchema {
 	// Parse properties map
 	mut props := map[string]OpenAPISchema{}
 	if 'properties' in obj {
-		props_obj := obj['properties'].as_map()
+		props_obj := (obj['properties'] or { json2.Any('') }).as_map()
 		for key, val in props_obj {
 			props[key] = openapi_schema_from_json_impl(val)
 		}
@@ -819,7 +819,7 @@ fn openapi_schema_from_json_impl(j json2.Any) OpenAPISchema {
 	// Parse enum values
 	mut enum_vals := []string{}
 	if 'enum' in obj {
-		for e in obj['enum'].arr() {
+		for e in (obj['enum'] or { json2.Any('') }).arr() {
 			enum_vals << e.str()
 		}
 	}
@@ -827,35 +827,35 @@ fn openapi_schema_from_json_impl(j json2.Any) OpenAPISchema {
 	// Parse required array
 	mut required := []string{}
 	if 'required' in obj {
-		for r in obj['required'].arr() {
+		for r in (obj['required'] or { json2.Any('') }).arr() {
 			required << r.str()
 		}
 	}
 	
 	mut schema := OpenAPISchema{
-		schema_type: if 'type' in obj { obj['type'].str() } else { '' }
-		format: if 'format' in obj { obj['format'].str() } else { '' }
-		title: if 'title' in obj { obj['title'].str() } else { '' }
-		description: if 'description' in obj { obj['description'].str() } else { '' }
-		default_val: if 'default' in obj { obj['default'].str() } else { '' }
-		example: if 'example' in obj { obj['example'].str() } else { '' }
+		schema_type: if 'type' in obj { (obj['type'] or { json2.Any('') }).str() } else { '' }
+		format: if 'format' in obj { (obj['format'] or { json2.Any('') }).str() } else { '' }
+		title: if 'title' in obj { (obj['title'] or { json2.Any('') }).str() } else { '' }
+		description: if 'description' in obj { (obj['description'] or { json2.Any('') }).str() } else { '' }
+		default_val: if 'default' in obj { (obj['default'] or { json2.Any('') }).str() } else { '' }
+		example: if 'example' in obj { (obj['example'] or { json2.Any('') }).str() } else { '' }
 		enum_values: enum_vals
 		required: required
 		properties: props
-		minimum: if 'minimum' in obj { obj['minimum'].f64() } else { 0 }
-		maximum: if 'maximum' in obj { obj['maximum'].f64() } else { 0 }
-		min_length: if 'minLength' in obj { obj['minLength'].int() } else { 0 }
-		max_length: if 'maxLength' in obj { obj['maxLength'].int() } else { 0 }
-		pattern: if 'pattern' in obj { obj['pattern'].str() } else { '' }
-		nullable: if 'nullable' in obj { obj['nullable'].bool() } else { false }
-		read_only: if 'readOnly' in obj { obj['readOnly'].bool() } else { false }
-		write_only: if 'writeOnly' in obj { obj['writeOnly'].bool() } else { false }
-		ref: if r'$ref' in obj { obj[r'$ref'].str() } else { '' }
+		minimum: if 'minimum' in obj { (obj['minimum'] or { json2.Any('') }).f64() } else { 0 }
+		maximum: if 'maximum' in obj { (obj['maximum'] or { json2.Any('') }).f64() } else { 0 }
+		min_length: if 'minLength' in obj { (obj['minLength'] or { json2.Any('') }).int() } else { 0 }
+		max_length: if 'maxLength' in obj { (obj['maxLength'] or { json2.Any('') }).int() } else { 0 }
+		pattern: if 'pattern' in obj { (obj['pattern'] or { json2.Any('') }).str() } else { '' }
+		nullable: if 'nullable' in obj { (obj['nullable'] or { json2.Any('') }).bool() } else { false }
+		read_only: if 'readOnly' in obj { (obj['readOnly'] or { json2.Any('') }).bool() } else { false }
+		write_only: if 'writeOnly' in obj { (obj['writeOnly'] or { json2.Any('') }).bool() } else { false }
+		ref: if r'$ref' in obj { (obj[r'$ref'] or { json2.Any('') }).str() } else { '' }
 	}
 	
 	// Parse items (for array type) - handle pointer separately
 	if 'items' in obj {
-		items_schema := openapi_schema_from_json_impl(obj['items'])
+		items_schema := openapi_schema_from_json_impl(obj['items'] or { json2.Any('') })
 		schema.items = &items_schema
 	}
 	
@@ -866,9 +866,9 @@ fn openapi_schema_from_json_impl(j json2.Any) OpenAPISchema {
 pub fn OpenAPIHeader.from_json(j json2.Any) OpenAPIHeader {
 	obj := j.as_map()
 	return OpenAPIHeader{
-		description: if 'description' in obj { obj['description'].str() } else { '' }
-		required: if 'required' in obj { obj['required'].bool() } else { false }
-		schema: if 'schema' in obj { OpenAPISchema.from_json(obj['schema']) } else { OpenAPISchema{} }
+		description: if 'description' in obj { (obj['description'] or { json2.Any('') }).str() } else { '' }
+		required: if 'required' in obj { (obj['required'] or { json2.Any('') }).bool() } else { false }
+		schema: if 'schema' in obj { OpenAPISchema.from_json(obj['schema'] or { json2.Any('') }) } else { OpenAPISchema{} }
 	}
 }
 
@@ -876,8 +876,8 @@ pub fn OpenAPIHeader.from_json(j json2.Any) OpenAPIHeader {
 pub fn OpenAPIMediaType.from_json(j json2.Any) OpenAPIMediaType {
 	obj := j.as_map()
 	return OpenAPIMediaType{
-		schema: if 'schema' in obj { OpenAPISchema.from_json(obj['schema']) } else { OpenAPISchema{} }
-		example: if 'example' in obj { obj['example'].str() } else { '' }
+		schema: if 'schema' in obj { OpenAPISchema.from_json(obj['schema'] or { json2.Any('') }) } else { OpenAPISchema{} }
+		example: if 'example' in obj { (obj['example'] or { json2.Any('') }).str() } else { '' }
 	}
 }
 
@@ -888,7 +888,7 @@ pub fn OpenAPIResponse.from_json(j json2.Any) OpenAPIResponse {
 	// Parse headers map
 	mut headers := map[string]OpenAPIHeader{}
 	if 'headers' in obj {
-		headers_obj := obj['headers'].as_map()
+		headers_obj := (obj['headers'] or { json2.Any('') }).as_map()
 		for key, val in headers_obj {
 			headers[key] = OpenAPIHeader.from_json(val)
 		}
@@ -897,14 +897,14 @@ pub fn OpenAPIResponse.from_json(j json2.Any) OpenAPIResponse {
 	// Parse content map
 	mut content := map[string]OpenAPIMediaType{}
 	if 'content' in obj {
-		content_obj := obj['content'].as_map()
+		content_obj := (obj['content'] or { json2.Any('') }).as_map()
 		for key, val in content_obj {
 			content[key] = OpenAPIMediaType.from_json(val)
 		}
 	}
 	
 	return OpenAPIResponse{
-		description: if 'description' in obj { obj['description'].str() } else { '' }
+		description: if 'description' in obj { (obj['description'] or { json2.Any('') }).str() } else { '' }
 		headers: headers
 		content: content
 	}
@@ -917,16 +917,16 @@ pub fn OpenAPIRequestBody.from_json(j json2.Any) OpenAPIRequestBody {
 	// Parse content map
 	mut content := map[string]OpenAPIMediaType{}
 	if 'content' in obj {
-		content_obj := obj['content'].as_map()
+		content_obj := (obj['content'] or { json2.Any('') }).as_map()
 		for key, val in content_obj {
 			content[key] = OpenAPIMediaType.from_json(val)
 		}
 	}
 	
 	return OpenAPIRequestBody{
-		description: if 'description' in obj { obj['description'].str() } else { '' }
+		description: if 'description' in obj { (obj['description'] or { json2.Any('') }).str() } else { '' }
 		content: content
-		required: if 'required' in obj { obj['required'].bool() } else { false }
+		required: if 'required' in obj { (obj['required'] or { json2.Any('') }).bool() } else { false }
 	}
 }
 
@@ -934,13 +934,13 @@ pub fn OpenAPIRequestBody.from_json(j json2.Any) OpenAPIRequestBody {
 pub fn OpenAPIParameter.from_json(j json2.Any) OpenAPIParameter {
 	obj := j.as_map()
 	return OpenAPIParameter{
-		name: if 'name' in obj { obj['name'].str() } else { '' }
-		in_location: if 'in' in obj { obj['in'].str() } else { '' }
-		description: if 'description' in obj { obj['description'].str() } else { '' }
-		required: if 'required' in obj { obj['required'].bool() } else { false }
-		deprecated: if 'deprecated' in obj { obj['deprecated'].bool() } else { false }
-		schema: if 'schema' in obj { OpenAPISchema.from_json(obj['schema']) } else { OpenAPISchema{} }
-		example: if 'example' in obj { obj['example'].str() } else { '' }
+		name: if 'name' in obj { (obj['name'] or { json2.Any('') }).str() } else { '' }
+		in_location: if 'in' in obj { (obj['in'] or { json2.Any('') }).str() } else { '' }
+		description: if 'description' in obj { (obj['description'] or { json2.Any('') }).str() } else { '' }
+		required: if 'required' in obj { (obj['required'] or { json2.Any('') }).bool() } else { false }
+		deprecated: if 'deprecated' in obj { (obj['deprecated'] or { json2.Any('') }).bool() } else { false }
+		schema: if 'schema' in obj { OpenAPISchema.from_json(obj['schema'] or { json2.Any('') }) } else { OpenAPISchema{} }
+		example: if 'example' in obj { (obj['example'] or { json2.Any('') }).str() } else { '' }
 	}
 }
 
@@ -951,7 +951,7 @@ pub fn OpenAPIOperation.from_json(j json2.Any) OpenAPIOperation {
 	// Parse tags array
 	mut tags := []string{}
 	if 'tags' in obj {
-		for t in obj['tags'].arr() {
+		for t in (obj['tags'] or { json2.Any('') }).arr() {
 			tags << t.str()
 		}
 	}
@@ -959,7 +959,7 @@ pub fn OpenAPIOperation.from_json(j json2.Any) OpenAPIOperation {
 	// Parse parameters array
 	mut parameters := []OpenAPIParameter{}
 	if 'parameters' in obj {
-		for p in obj['parameters'].arr() {
+		for p in (obj['parameters'] or { json2.Any('') }).arr() {
 			parameters << OpenAPIParameter.from_json(p)
 		}
 	}
@@ -967,7 +967,7 @@ pub fn OpenAPIOperation.from_json(j json2.Any) OpenAPIOperation {
 	// Parse responses map
 	mut responses := map[string]OpenAPIResponse{}
 	if 'responses' in obj {
-		responses_obj := obj['responses'].as_map()
+		responses_obj := (obj['responses'] or { json2.Any('') }).as_map()
 		for key, val in responses_obj {
 			responses[key] = OpenAPIResponse.from_json(val)
 		}
@@ -976,7 +976,7 @@ pub fn OpenAPIOperation.from_json(j json2.Any) OpenAPIOperation {
 	// Parse security array
 	mut security := []map[string][]string{}
 	if 'security' in obj {
-		for sec in obj['security'].arr() {
+		for sec in (obj['security'] or { json2.Any('') }).arr() {
 			mut sec_map := map[string][]string{}
 			sec_obj := sec.as_map()
 			for key, val in sec_obj {
@@ -991,14 +991,14 @@ pub fn OpenAPIOperation.from_json(j json2.Any) OpenAPIOperation {
 	}
 	
 	return OpenAPIOperation{
-		summary: if 'summary' in obj { obj['summary'].str() } else { '' }
-		description: if 'description' in obj { obj['description'].str() } else { '' }
-		operation_id: if 'operationId' in obj { obj['operationId'].str() } else { '' }
+		summary: if 'summary' in obj { (obj['summary'] or { json2.Any('') }).str() } else { '' }
+		description: if 'description' in obj { (obj['description'] or { json2.Any('') }).str() } else { '' }
+		operation_id: if 'operationId' in obj { (obj['operationId'] or { json2.Any('') }).str() } else { '' }
 		tags: tags
 		parameters: parameters
-		request_body: if 'requestBody' in obj { OpenAPIRequestBody.from_json(obj['requestBody']) } else { OpenAPIRequestBody{} }
+		request_body: if 'requestBody' in obj { OpenAPIRequestBody.from_json(obj['requestBody'] or { json2.Any('') }) } else { OpenAPIRequestBody{} }
 		responses: responses
-		deprecated: if 'deprecated' in obj { obj['deprecated'].bool() } else { false }
+		deprecated: if 'deprecated' in obj { (obj['deprecated'] or { json2.Any('') }).bool() } else { false }
 		security: security
 	}
 }
@@ -1010,22 +1010,22 @@ pub fn OpenAPIPathItem.from_json(j json2.Any) OpenAPIPathItem {
 	// Parse parameters array
 	mut parameters := []OpenAPIParameter{}
 	if 'parameters' in obj {
-		for p in obj['parameters'].arr() {
+		for p in (obj['parameters'] or { json2.Any('') }).arr() {
 			parameters << OpenAPIParameter.from_json(p)
 		}
 	}
 	
 	return OpenAPIPathItem{
-		summary: if 'summary' in obj { obj['summary'].str() } else { '' }
-		description: if 'description' in obj { obj['description'].str() } else { '' }
+		summary: if 'summary' in obj { (obj['summary'] or { json2.Any('') }).str() } else { '' }
+		description: if 'description' in obj { (obj['description'] or { json2.Any('') }).str() } else { '' }
 		parameters: parameters
-		get: if 'get' in obj { OpenAPIOperation.from_json(obj['get']) } else { OpenAPIOperation{} }
-		post: if 'post' in obj { OpenAPIOperation.from_json(obj['post']) } else { OpenAPIOperation{} }
-		put: if 'put' in obj { OpenAPIOperation.from_json(obj['put']) } else { OpenAPIOperation{} }
-		delete: if 'delete' in obj { OpenAPIOperation.from_json(obj['delete']) } else { OpenAPIOperation{} }
-		patch: if 'patch' in obj { OpenAPIOperation.from_json(obj['patch']) } else { OpenAPIOperation{} }
-		head: if 'head' in obj { OpenAPIOperation.from_json(obj['head']) } else { OpenAPIOperation{} }
-		options: if 'options' in obj { OpenAPIOperation.from_json(obj['options']) } else { OpenAPIOperation{} }
+		get: if 'get' in obj { OpenAPIOperation.from_json(obj['get'] or { json2.Any('') }) } else { OpenAPIOperation{} }
+		post: if 'post' in obj { OpenAPIOperation.from_json(obj['post'] or { json2.Any('') }) } else { OpenAPIOperation{} }
+		put: if 'put' in obj { OpenAPIOperation.from_json(obj['put'] or { json2.Any('') }) } else { OpenAPIOperation{} }
+		delete: if 'delete' in obj { OpenAPIOperation.from_json(obj['delete'] or { json2.Any('') }) } else { OpenAPIOperation{} }
+		patch: if 'patch' in obj { OpenAPIOperation.from_json(obj['patch'] or { json2.Any('') }) } else { OpenAPIOperation{} }
+		head: if 'head' in obj { OpenAPIOperation.from_json(obj['head'] or { json2.Any('') }) } else { OpenAPIOperation{} }
+		options: if 'options' in obj { OpenAPIOperation.from_json(obj['options'] or { json2.Any('') }) } else { OpenAPIOperation{} }
 	}
 }
 
@@ -1033,12 +1033,12 @@ pub fn OpenAPIPathItem.from_json(j json2.Any) OpenAPIPathItem {
 pub fn OpenAPISecurityScheme.from_json(j json2.Any) OpenAPISecurityScheme {
 	obj := j.as_map()
 	return OpenAPISecurityScheme{
-		scheme_type: if 'type' in obj { obj['type'].str() } else { '' }
-		description: if 'description' in obj { obj['description'].str() } else { '' }
-		name: if 'name' in obj { obj['name'].str() } else { '' }
-		in_location: if 'in' in obj { obj['in'].str() } else { '' }
-		scheme: if 'scheme' in obj { obj['scheme'].str() } else { '' }
-		bearer_format: if 'bearerFormat' in obj { obj['bearerFormat'].str() } else { '' }
+		scheme_type: if 'type' in obj { (obj['type'] or { json2.Any('') }).str() } else { '' }
+		description: if 'description' in obj { (obj['description'] or { json2.Any('') }).str() } else { '' }
+		name: if 'name' in obj { (obj['name'] or { json2.Any('') }).str() } else { '' }
+		in_location: if 'in' in obj { (obj['in'] or { json2.Any('') }).str() } else { '' }
+		scheme: if 'scheme' in obj { (obj['scheme'] or { json2.Any('') }).str() } else { '' }
+		bearer_format: if 'bearerFormat' in obj { (obj['bearerFormat'] or { json2.Any('') }).str() } else { '' }
 	}
 }
 
@@ -1049,7 +1049,7 @@ pub fn OpenAPIComponents.from_json(j json2.Any) OpenAPIComponents {
 	// Parse schemas map
 	mut schemas := map[string]OpenAPISchema{}
 	if 'schemas' in obj {
-		schemas_obj := obj['schemas'].as_map()
+		schemas_obj := (obj['schemas'] or { json2.Any('') }).as_map()
 		for key, val in schemas_obj {
 			schemas[key] = OpenAPISchema.from_json(val)
 		}
@@ -1058,7 +1058,7 @@ pub fn OpenAPIComponents.from_json(j json2.Any) OpenAPIComponents {
 	// Parse responses map
 	mut responses := map[string]OpenAPIResponse{}
 	if 'responses' in obj {
-		responses_obj := obj['responses'].as_map()
+		responses_obj := (obj['responses'] or { json2.Any('') }).as_map()
 		for key, val in responses_obj {
 			responses[key] = OpenAPIResponse.from_json(val)
 		}
@@ -1067,7 +1067,7 @@ pub fn OpenAPIComponents.from_json(j json2.Any) OpenAPIComponents {
 	// Parse parameters map
 	mut parameters := map[string]OpenAPIParameter{}
 	if 'parameters' in obj {
-		parameters_obj := obj['parameters'].as_map()
+		parameters_obj := (obj['parameters'] or { json2.Any('') }).as_map()
 		for key, val in parameters_obj {
 			parameters[key] = OpenAPIParameter.from_json(val)
 		}
@@ -1076,7 +1076,7 @@ pub fn OpenAPIComponents.from_json(j json2.Any) OpenAPIComponents {
 	// Parse request_bodies map
 	mut request_bodies := map[string]OpenAPIRequestBody{}
 	if 'requestBodies' in obj {
-		request_bodies_obj := obj['requestBodies'].as_map()
+		request_bodies_obj := (obj['requestBodies'] or { json2.Any('') }).as_map()
 		for key, val in request_bodies_obj {
 			request_bodies[key] = OpenAPIRequestBody.from_json(val)
 		}
@@ -1085,7 +1085,7 @@ pub fn OpenAPIComponents.from_json(j json2.Any) OpenAPIComponents {
 	// Parse headers map
 	mut headers := map[string]OpenAPIHeader{}
 	if 'headers' in obj {
-		headers_obj := obj['headers'].as_map()
+		headers_obj := (obj['headers'] or { json2.Any('') }).as_map()
 		for key, val in headers_obj {
 			headers[key] = OpenAPIHeader.from_json(val)
 		}
@@ -1094,7 +1094,7 @@ pub fn OpenAPIComponents.from_json(j json2.Any) OpenAPIComponents {
 	// Parse security_schemes map
 	mut security_schemes := map[string]OpenAPISecurityScheme{}
 	if 'securitySchemes' in obj {
-		security_schemes_obj := obj['securitySchemes'].as_map()
+		security_schemes_obj := (obj['securitySchemes'] or { json2.Any('') }).as_map()
 		for key, val in security_schemes_obj {
 			security_schemes[key] = OpenAPISecurityScheme.from_json(val)
 		}
@@ -1117,7 +1117,7 @@ pub fn OpenAPIDocument.from_json(j json2.Any) OpenAPIDocument {
 	// Parse servers array
 	mut servers := []OpenAPIServer{}
 	if 'servers' in obj {
-		for s in obj['servers'].arr() {
+		for s in (obj['servers'] or { json2.Any('') }).arr() {
 			servers << OpenAPIServer.from_json(s)
 		}
 	}
@@ -1125,7 +1125,7 @@ pub fn OpenAPIDocument.from_json(j json2.Any) OpenAPIDocument {
 	// Parse paths map
 	mut paths := map[string]OpenAPIPathItem{}
 	if 'paths' in obj {
-		paths_obj := obj['paths'].as_map()
+		paths_obj := (obj['paths'] or { json2.Any('') }).as_map()
 		for key, val in paths_obj {
 			paths[key] = OpenAPIPathItem.from_json(val)
 		}
@@ -1134,7 +1134,7 @@ pub fn OpenAPIDocument.from_json(j json2.Any) OpenAPIDocument {
 	// Parse security array
 	mut security := []map[string][]string{}
 	if 'security' in obj {
-		for sec in obj['security'].arr() {
+		for sec in (obj['security'] or { json2.Any('') }).arr() {
 			mut sec_map := map[string][]string{}
 			sec_obj := sec.as_map()
 			for key, val in sec_obj {
@@ -1151,20 +1151,20 @@ pub fn OpenAPIDocument.from_json(j json2.Any) OpenAPIDocument {
 	// Parse tags array
 	mut tags := []OpenAPITag{}
 	if 'tags' in obj {
-		for t in obj['tags'].arr() {
+		for t in (obj['tags'] or { json2.Any('') }).arr() {
 			tags << OpenAPITag.from_json(t)
 		}
 	}
 	
 	return OpenAPIDocument{
-		openapi: if 'openapi' in obj { obj['openapi'].str() } else { '' }
-		info: if 'info' in obj { OpenAPIInfo.from_json(obj['info']) } else { OpenAPIInfo{} }
+		openapi: if 'openapi' in obj { (obj['openapi'] or { json2.Any('') }).str() } else { '' }
+		info: if 'info' in obj { OpenAPIInfo.from_json(obj['info'] or { json2.Any('') }) } else { OpenAPIInfo{} }
 		servers: servers
 		paths: paths
-		components: if 'components' in obj { OpenAPIComponents.from_json(obj['components']) } else { OpenAPIComponents{} }
+		components: if 'components' in obj { OpenAPIComponents.from_json(obj['components'] or { json2.Any('') }) } else { OpenAPIComponents{} }
 		security: security
 		tags: tags
-		external_docs: if 'externalDocs' in obj { OpenAPIExternalDocs.from_json(obj['externalDocs']) } else { OpenAPIExternalDocs{} }
+		external_docs: if 'externalDocs' in obj { OpenAPIExternalDocs.from_json(obj['externalDocs'] or { json2.Any('') }) } else { OpenAPIExternalDocs{} }
 	}
 }
 
