@@ -72,35 +72,6 @@ v -enable-globals -cc gcc -ldflags "-ldbghelp" -o app.exe your_app.v
 - `-cc gcc` - Use GCC compiler (MinGW-w64 on Windows, required because V's default compiler tcc does not support MinGW `.a` static library format)
 - `-ldflags "-ldbghelp"` - Required on Windows for libuv linking
 
-## Prerequisites (Windows)
-
-To use uSockets backend on Windows, you need:
-
-1. **GCC (MinGW-w64)** - C compiler (required, tcc is not supported)
-   ```powershell
-   # Install via Scoop (recommended)
-   scoop install mingw
-   
-   # Or via Chocolatey
-   choco install mingw
-   
-   # Or download w64devkit from: https://github.com/skeeto/w64devkit/releases
-   ```
-
-2. **V Compiler** - Version 0.4.x or later
-   ```powershell
-   # Install via Scoop
-   scoop install vlang
-   
-   # Or download from: https://vlang.io/
-   ```
-
-3. **Verify Installation**
-   ```powershell
-   gcc --version   # Should show MinGW-w64 GCC
-   v version       # Should show V 0.4.x
-   ```
-
 ## Pre-compiled Libraries
 
 The uSockets library and libuv are pre-compiled and included in the `lib/{platform}/` directory:
