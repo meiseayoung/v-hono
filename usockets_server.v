@@ -11,8 +11,8 @@
 //   app.listen_usockets(3000)  // 使用 uSockets 后端
 //   app.listen(":3000")        // 使用默认 picoev 后端
 //
-// 编译命令 (必须使用 -enable-globals):
-//   v -enable-globals -cc gcc -ldflags "-ldbghelp" your_app.v -o app.exe
+// 编译命令:
+//   v -cc gcc -ldflags "-ldbghelp" your_app.v -o app.exe
 //
 // 性能对比 (200连接, 100K请求):
 //   uSockets: ~22,000 RPS (高并发优化)
@@ -36,9 +36,19 @@ pub:
 	max_keepalive_req int    = 10000
 }
 
-// 全局变量存储应用引用 (需要 -enable-globals 编译选项)
-__global g_usockets_app = &Hono(unsafe { nil })
-__global g_usockets_config = UsocketsConfig{}
+// uSockets 上下文扩展数据 - 存储应用引用和配置
+struct UsocketsContextExt {
+mut:
+	app    &Hono = unsafe { nil }
+	config UsocketsConfig
+}
+
+// 从 socket 获取上下文扩展数据
+@[inline]
+fn get_usockets_ext(s usockets.Socket) &UsocketsContextExt {
+	ctx := s.context()
+	return unsafe { &UsocketsContextExt(ctx.ext()) }
+}
 
 // 使用 uSockets 启动服务器
 pub fn (mut app Hono) listen_usockets(port int) {
@@ -51,14 +61,17 @@ pub fn (mut app Hono) listen_usockets(port int) {
 pub fn (mut app Hono) listen_usockets_with_config(config UsocketsConfig) {
 	// 优化：预计算中间件前缀排序
 	app.precompute_middleware_prefixes()
-	
-	// 存储到全局变量
-	g_usockets_app = unsafe { &app }
-	g_usockets_config = config
 
 	// 创建 uSockets 事件循环
 	loop := usockets.create_loop()
-	ctx := usockets.create_socket_context(loop)
+	
+	// 创建带扩展数据的 socket context
+	ctx := usockets.create_socket_context_with_ext(loop, int(sizeof(UsocketsContextExt)))
+	
+	// 初始化扩展数据
+	mut ext := unsafe { &UsocketsContextExt(ctx.ext()) }
+	ext.app = unsafe { &app }
+	ext.config = config
 
 	// 设置回调
 	ctx.on_open(usockets_on_open)
@@ -220,7 +233,11 @@ fn handle_usockets_ws_upgrade(s usockets.Socket, raw_data string, route_match Co
 }
 
 fn usockets_on_data(s usockets.Socket, data &char, length int) usockets.Socket {
-	if g_usockets_app == unsafe { nil } {
+	// 从 socket context 获取应用引用
+	ext := get_usockets_ext(s)
+	mut app := ext.app
+	
+	if app == unsafe { nil } {
 		s.write_bytes('HTTP/1.1 500 Internal Server Error\r\nContent-Length: 21\r\n\r\nInternal Server Error')
 		return s
 	}
@@ -240,8 +257,8 @@ fn usockets_on_data(s usockets.Socket, data &char, length int) usockets.Socket {
 	// 路由匹配 - 优先使用快速路由器
 	mut response_sent := false
 
-	if g_usockets_app.use_fast_router {
-		if route_match := g_usockets_app.fast_router.match_route(method, path) {
+	if app.use_fast_router {
+		if route_match := app.fast_router.match_route(method, path) {
 			mut hono_ctx := create_usockets_context(method, path, route_match.params, query_map, body)
 			
 			// Handle WebSocket upgrade if detected
@@ -257,11 +274,11 @@ fn usockets_on_data(s usockets.Socket, data &char, length int) usockets.Socket {
 			}
 			
 			// 优化1：零中间件快速路径
-			if !g_usockets_app.has_middlewares {
+			if !app.has_middlewares {
 				response := route_match.handler.handle(mut hono_ctx)
 				send_usockets_response(s, hono_ctx, response, is_http11)
 			} else {
-				middlewares := get_middlewares_for_path_usockets_optimized(g_usockets_app, path)
+				middlewares := get_middlewares_for_path_usockets_optimized(app, path)
 				response := exec_middlewares_usockets(0, middlewares, mut hono_ctx, route_match.handler)
 				send_usockets_response(s, hono_ctx, response, is_http11)
 			}
@@ -271,7 +288,7 @@ fn usockets_on_data(s usockets.Socket, data &char, length int) usockets.Socket {
 
 	// 回退到混合路由器
 	if !response_sent {
-		if route_match := g_usockets_app.context_hybrid_router.match_route(method, path) {
+		if route_match := app.context_hybrid_router.match_route(method, path) {
 			mut hono_ctx := create_usockets_context(method, path, route_match.params, query_map, body)
 			
 			// Handle WebSocket upgrade if detected
@@ -287,11 +304,11 @@ fn usockets_on_data(s usockets.Socket, data &char, length int) usockets.Socket {
 			}
 			
 			// 优化1：零中间件快速路径
-			if !g_usockets_app.has_middlewares {
+			if !app.has_middlewares {
 				response := route_match.handler.handle(mut hono_ctx)
 				send_usockets_response(s, hono_ctx, response, is_http11)
 			} else {
-				middlewares := get_middlewares_for_path_usockets_optimized(g_usockets_app, path)
+				middlewares := get_middlewares_for_path_usockets_optimized(app, path)
 				response := exec_middlewares_usockets(0, middlewares, mut hono_ctx, route_match.handler)
 				send_usockets_response(s, hono_ctx, response, is_http11)
 			}
@@ -303,7 +320,7 @@ fn usockets_on_data(s usockets.Socket, data &char, length int) usockets.Socket {
 	if !response_sent {
 		mut hono_ctx := create_usockets_context(method, path, map[string]string{}, query_map, body)
 
-		if handler := g_usockets_app.not_found_handler {
+		if handler := app.not_found_handler {
 			response := handler(mut hono_ctx)
 			send_usockets_response(s, hono_ctx, response, is_http11)
 		} else {

@@ -17,6 +17,7 @@ A high-performance V language web framework inspired by [Hono.js](https://hono.d
 - 📁 **Static File Serving** - Built-in static file server with caching
 - 🛡️ **Security** - Path validation and security utilities
 - 📤 **File Upload** - Chunked file upload support
+- ☁️ **Multi-Cloud Storage** - Built-in support for Local, S3, Aliyun OSS, Tencent COS
 - 🗄️ **Database** - SQLite integration for data persistence
 - 🔌 **WebSocket** - RFC 6455 compliant WebSocket support with event-based API
 - 📡 **SSE Streaming** - Server-Sent Events and streaming response support
@@ -66,18 +67,18 @@ For maximum performance with uSockets backend:
 
 ```bash
 # macOS / Linux
-v -enable-globals -prod -o app your_app.v
+v -prod -o app your_app.v
 ./app
 
 # Windows (must use gcc, tcc does not support .a static library format)
-v -enable-globals -cc gcc -ldflags "-ldbghelp" -o app.exe your_app.v
+v -cc gcc -ldflags "-ldbghelp" -o app.exe your_app.v
 .\app.exe
 ```
 
 **Important Notes:**
-- The `-enable-globals` flag is required for uSockets backend
 - On Windows, you **must** use `-cc gcc` because V's default compiler (tcc) does not support MinGW `.a` static library format
 - The `-ldflags "-ldbghelp"` is required on Windows for libuv linking
+- The `-enable-globals` flag is **only** needed if your application uses global variables (e.g., for shared state)
 
 The uSockets library and libuv are pre-compiled and included in the `usockets/lib/{platform}/` directory. See [usockets/README.md](usockets/README.md) for prerequisites, building from source, and detailed configuration options.
 
@@ -1210,6 +1211,355 @@ app.get('/docs', hono.swagger_ui(hono.SwaggerUIOptions{
 | `options(op)` | Add OPTIONS operation |
 | `done()` | Return to parent builder |
 
+### 11. Multi-Cloud Storage
+
+Built-in support for multiple storage backends including Local filesystem, AWS S3/MinIO, Aliyun OSS, and Tencent COS.
+
+#### Storage Configuration
+
+```v
+import meiseayoung.hono
+
+fn main() {
+    // Local storage configuration
+    local_config := hono.StorageConfig{
+        storage_type: .local
+        local: hono.LocalStorageConfig{
+            base_path: './storage'
+            url_prefix: '/files'
+            create_dirs: true
+        }
+    }
+
+    // S3/MinIO configuration
+    s3_config := hono.StorageConfig{
+        storage_type: .s3
+        s3: hono.S3Config{
+            endpoint: 'https://s3.amazonaws.com'
+            access_key: 'your-access-key'
+            secret_key: 'your-secret-key'
+            region: 'us-east-1'
+            default_bucket: 'my-bucket'
+        }
+    }
+
+    // Aliyun OSS configuration
+    oss_config := hono.StorageConfig{
+        storage_type: .aliyun_oss
+        aliyun_oss: hono.AliyunOSSConfig{
+            endpoint: 'oss-cn-hangzhou.aliyuncs.com'
+            access_key_id: 'your-access-key-id'
+            access_key_secret: 'your-access-key-secret'
+            default_bucket: 'my-bucket'
+        }
+    }
+
+    // Tencent COS configuration
+    cos_config := hono.StorageConfig{
+        storage_type: .tencent_cos
+        tencent_cos: hono.TencentCOSConfig{
+            secret_id: 'your-secret-id'
+            secret_key: 'your-secret-key'
+            region: 'ap-guangzhou'
+            default_bucket: 'my-bucket-1234567890'
+        }
+    }
+}
+```
+
+#### Using FileService
+
+```v
+import meiseayoung.hono
+
+fn main() {
+    mut app := hono.Hono.new()
+
+    // Create FileService with local storage
+    mut fs := hono.new_file_service(hono.FileServiceConfig{
+        storage: hono.StorageConfig{
+            storage_type: .local
+            local: hono.LocalStorageConfig{
+                base_path: './uploads'
+            }
+        }
+        db_path: './storage/files.db'
+        default_bucket: 'default'
+        chunk_size: 5 * 1024 * 1024  // 5MB chunks
+    }) or {
+        eprintln('Failed to create FileService: ${err}')
+        return
+    }
+
+    // Register file routes
+    fs.register_routes(mut app, '/api/files')
+
+    app.listen(':3000')
+}
+```
+
+#### Direct Storage Provider Usage
+
+```v
+import meiseayoung.hono
+
+fn main() {
+    // Create local storage provider
+    mut storage := hono.new_local_storage(hono.LocalStorageConfig{
+        base_path: './storage'
+    }) or {
+        eprintln('Failed to create storage: ${err}')
+        return
+    }
+
+    // Upload a file
+    result := storage.upload('my-bucket', 'test.txt', 'Hello, World!'.bytes(), 'text/plain') or {
+        eprintln('Upload failed: ${err}')
+        return
+    }
+    println('Uploaded: ${result.object_key}')
+
+    // Download a file
+    data := storage.download('my-bucket', 'test.txt') or {
+        eprintln('Download failed: ${err}')
+        return
+    }
+    println('Downloaded: ${data.bytestr()}')
+
+    // Check if file exists
+    exists := storage.exists('my-bucket', 'test.txt') or { false }
+    println('Exists: ${exists}')
+
+    // Generate presigned URL
+    url := storage.presign_url('my-bucket', 'test.txt', hono.PresignOptions{
+        expires_in: 3600  // 1 hour
+        method: 'GET'
+    }) or {
+        eprintln('Presign failed: ${err}')
+        return
+    }
+    println('Presigned URL: ${url}')
+
+    // Delete a file
+    storage.delete('my-bucket', 'test.txt') or {
+        eprintln('Delete failed: ${err}')
+    }
+}
+```
+
+#### Multipart Upload for Large Files
+
+```v
+import meiseayoung.hono
+
+fn main() {
+    mut storage := hono.new_s3_storage(hono.S3Config{
+        endpoint: 'https://s3.amazonaws.com'
+        access_key: 'your-access-key'
+        secret_key: 'your-secret-key'
+        region: 'us-east-1'
+        default_bucket: 'my-bucket'
+    }) or {
+        eprintln('Failed to create S3 storage: ${err}')
+        return
+    }
+
+    // Initialize multipart upload
+    upload_id := storage.init_multipart('my-bucket', 'large-file.zip', 'application/zip') or {
+        eprintln('Init multipart failed: ${err}')
+        return
+    }
+
+    // Upload parts (in real usage, read from file in chunks)
+    mut parts := []hono.PartInfo{}
+    chunk_data := []u8{len: 5 * 1024 * 1024, init: 0}  // 5MB chunk
+    
+    for i in 1 .. 4 {
+        etag := storage.upload_part('my-bucket', 'large-file.zip', upload_id, i, chunk_data) or {
+            // Abort on failure
+            storage.abort_multipart('my-bucket', 'large-file.zip', upload_id) or {}
+            eprintln('Upload part ${i} failed: ${err}')
+            return
+        }
+        parts << hono.PartInfo{
+            part_number: i
+            etag: etag
+            size: chunk_data.len
+        }
+    }
+
+    // Complete multipart upload
+    result := storage.complete_multipart('my-bucket', 'large-file.zip', upload_id, parts) or {
+        eprintln('Complete multipart failed: ${err}')
+        return
+    }
+    println('Upload completed: ${result.object_key}')
+}
+```
+
+#### HTTP Handlers for File Operations
+
+```v
+import meiseayoung.hono
+
+fn main() {
+    mut app := hono.Hono.new()
+
+    mut fs := hono.new_file_service(hono.FileServiceConfig{
+        storage: hono.StorageConfig{
+            storage_type: .local
+            local: hono.LocalStorageConfig{
+                base_path: './uploads'
+            }
+        }
+    }) or {
+        eprintln('Failed to create FileService: ${err}')
+        return
+    }
+
+    // File upload endpoint
+    app.post('/upload', fn [mut fs] (mut c hono.Context) http.Response {
+        return fs.handle_upload(mut c)
+    })
+
+    // Chunked upload endpoints
+    app.post('/upload/chunk', fn [mut fs] (mut c hono.Context) http.Response {
+        return fs.handle_chunk_upload(mut c)
+    })
+
+    app.post('/upload/complete', fn [mut fs] (mut c hono.Context) http.Response {
+        return fs.handle_chunk_complete(mut c)
+    })
+
+    // File download endpoint
+    app.get('/files/:uuid', fn [mut fs] (mut c hono.Context) http.Response {
+        return fs.handle_download(mut c)
+    })
+
+    // File delete endpoint
+    app.delete('/files/:uuid', fn [mut fs] (mut c hono.Context) http.Response {
+        return fs.handle_delete(mut c)
+    })
+
+    // List files endpoint
+    app.get('/files', fn [fs] (mut c hono.Context) http.Response {
+        return fs.handle_list(mut c)
+    })
+
+    // Get presigned URL endpoint
+    app.get('/files/:uuid/presign', fn [mut fs] (mut c hono.Context) http.Response {
+        return fs.handle_presign(mut c)
+    })
+
+    app.listen(':3000')
+}
+```
+
+#### Switching Storage Providers at Runtime
+
+```v
+import meiseayoung.hono
+
+fn main() {
+    mut fs := hono.new_file_service(hono.FileServiceConfig{
+        storage: hono.StorageConfig{
+            storage_type: .local
+            local: hono.LocalStorageConfig{
+                base_path: './uploads'
+            }
+        }
+    }) or {
+        eprintln('Failed to create FileService: ${err}')
+        return
+    }
+
+    // Switch to S3
+    fs.switch_to_s3(
+        'https://s3.amazonaws.com',
+        'access-key',
+        'secret-key',
+        'my-bucket'
+    ) or {
+        eprintln('Failed to switch to S3: ${err}')
+    }
+
+    // Switch to Aliyun OSS
+    fs.switch_to_aliyun_oss(
+        'oss-cn-hangzhou.aliyuncs.com',
+        'access-key-id',
+        'access-key-secret',
+        'my-bucket'
+    ) or {
+        eprintln('Failed to switch to OSS: ${err}')
+    }
+
+    // Switch to Tencent COS
+    fs.switch_to_tencent_cos(
+        'secret-id',
+        'secret-key',
+        'ap-guangzhou',
+        'my-bucket-1234567890'
+    ) or {
+        eprintln('Failed to switch to COS: ${err}')
+    }
+
+    // Switch back to local
+    fs.switch_to_local('./uploads') or {
+        eprintln('Failed to switch to local: ${err}')
+    }
+}
+```
+
+#### Storage Provider Interface
+
+| Method | Description |
+|--------|-------------|
+| `upload(bucket, key, data, content_type)` | Upload file data |
+| `upload_stream(bucket, key, reader, size, content_type)` | Upload from stream |
+| `download(bucket, key)` | Download file data |
+| `download_stream(bucket, key, writer)` | Download to stream |
+| `delete(bucket, key)` | Delete a file |
+| `exists(bucket, key)` | Check if file exists |
+| `head(bucket, key)` | Get file metadata |
+| `copy(src_bucket, src_key, dst_bucket, dst_key)` | Copy a file |
+| `list(bucket, options)` | List files in bucket |
+| `presign_url(bucket, key, options)` | Generate presigned URL |
+| `init_multipart(bucket, key, content_type)` | Initialize multipart upload |
+| `upload_part(bucket, key, upload_id, part_number, data)` | Upload a part |
+| `complete_multipart(bucket, key, upload_id, parts)` | Complete multipart upload |
+| `abort_multipart(bucket, key, upload_id)` | Abort multipart upload |
+| `create_bucket(bucket)` | Create a bucket |
+| `delete_bucket(bucket)` | Delete a bucket |
+| `bucket_exists(bucket)` | Check if bucket exists |
+| `provider_name()` | Get provider name |
+
+#### Error Handling and Retry
+
+```v
+import meiseayoung.hono
+
+fn main() {
+    // Configure retry behavior
+    config := hono.StorageConfig{
+        storage_type: .s3
+        s3: hono.S3Config{
+            endpoint: 'https://s3.amazonaws.com'
+            access_key: 'your-access-key'
+            secret_key: 'your-secret-key'
+            region: 'us-east-1'
+            default_bucket: 'my-bucket'
+        }
+        retry_count: 3        // Retry up to 3 times
+        retry_delay_ms: 1000  // Initial delay 1 second
+        timeout_ms: 30000     // 30 second timeout
+    }
+
+    // Error types are automatically classified
+    // Retryable: network_timeout, service_unavailable, rate_limited
+    // Non-retryable: invalid_credentials, access_denied, object_not_found
+}
+```
+
 ## Route Grouping
 
 ```v
@@ -1318,6 +1668,17 @@ v-hono/
 ├── streaming.v        # SSE streaming helper
 ├── swagger.v          # Swagger UI middleware
 ├── openapi.v          # OpenAPI 3.0/3.1 data structures and builder
+├── storage_interface.v # Unified storage provider interface
+├── storage_config.v   # Storage configuration types
+├── storage_errors.v   # Storage error types
+├── local_storage.v    # Local filesystem storage provider
+├── s3_storage.v       # S3/MinIO storage provider
+├── aliyun_oss.v       # Aliyun OSS storage provider
+├── tencent_cos.v      # Tencent COS storage provider
+├── file_service.v     # High-level file service
+├── chunk_manager.v    # Chunk upload manager
+├── http_handlers.v    # Storage HTTP handlers
+├── retry.v            # Retry mechanism with exponential backoff
 ├── picoev_server.v    # Picoev backend with WebSocket/SSE support
 ├── usockets_server.v  # uSockets backend with WebSocket/SSE support
 ├── v.mod              # Module definition

@@ -69,10 +69,13 @@ fn C.us_socket_context_on_writable(ssl int, context SocketContext, on_writable v
 fn C.us_socket_context_on_timeout(ssl int, context SocketContext, on_timeout voidptr)
 fn C.us_socket_context_on_end(ssl int, context SocketContext, on_end voidptr)
 fn C.us_socket_context_listen(ssl int, context SocketContext, host voidptr, port int, options int, socket_ext_size int) ListenSocket
+fn C.us_socket_context_ext(ssl int, context SocketContext) voidptr
 
 fn C.us_socket_write(ssl int, socket Socket, data &char, length int, msg_more int) int
 fn C.us_socket_shutdown(ssl int, socket Socket)
 fn C.us_socket_close(ssl int, socket Socket, code int, reason voidptr) Socket
+fn C.us_socket_context(ssl int, socket Socket) SocketContext
+fn C.us_socket_ext(ssl int, socket Socket) voidptr
 
 fn C.us_listen_socket_close(ssl int, ls ListenSocket)
 
@@ -92,6 +95,12 @@ pub fn create_socket_context(loop Loop) SocketContext {
 	return C.us_create_socket_context(0, loop, 0, options)
 }
 
+// 创建带扩展数据的 socket context
+pub fn create_socket_context_with_ext(loop Loop, ext_size int) SocketContext {
+	options := C.us_socket_context_options_t{}
+	return C.us_create_socket_context(0, loop, ext_size, options)
+}
+
 pub fn (ctx SocketContext) free() { C.us_socket_context_free(0, ctx) }
 pub fn (ctx SocketContext) on_open(h voidptr) { C.us_socket_context_on_open(0, ctx, h) }
 pub fn (ctx SocketContext) on_close(h voidptr) { C.us_socket_context_on_close(0, ctx, h) }
@@ -102,10 +111,18 @@ pub fn (ctx SocketContext) on_end(h voidptr) { C.us_socket_context_on_end(0, ctx
 pub fn (ctx SocketContext) listen(port int) ListenSocket {
 	return C.us_socket_context_listen(0, ctx, unsafe { nil }, port, 0, 0)
 }
+// 获取 context 的扩展数据指针
+pub fn (ctx SocketContext) ext() voidptr {
+	return C.us_socket_context_ext(0, ctx)
+}
 
 pub fn (s Socket) write_bytes(data string) int { return C.us_socket_write(0, s, data.str, data.len, 0) }
 pub fn (s Socket) shutdown() { C.us_socket_shutdown(0, s) }
 pub fn (s Socket) close() Socket { return C.us_socket_close(0, s, 0, unsafe { nil }) }
+// 获取 socket 所属的 context
+pub fn (s Socket) context() SocketContext { return C.us_socket_context(0, s) }
+// 获取 socket 的扩展数据指针
+pub fn (s Socket) ext() voidptr { return C.us_socket_ext(0, s) }
 
 pub fn (ls ListenSocket) close() { C.us_listen_socket_close(0, ls) }
 pub fn (ls ListenSocket) is_valid() bool { return ls != unsafe { nil } }

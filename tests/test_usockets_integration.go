@@ -1,7 +1,7 @@
 // uSockets 集成测试 (Go 版本)
 //
 // 使用方法:
-// 1. 先启动测试服务器: v -enable-globals run v-hono/tests/test_usockets_server.v
+// 1. 先启动测试服务器: v run v-hono/tests/test_usockets_server.v
 // 2. 运行测试: go run v-hono/tests/test_usockets_integration.go
 
 package main
@@ -64,7 +64,7 @@ func main() {
 	fmt.Println("🔍 检查 uSockets 测试服务器...")
 	if !checkServerReady() {
 		fmt.Println("❌ 服务器未运行")
-		fmt.Println("   请先启动: v -enable-globals run v-hono/tests/test_usockets_server.v")
+		fmt.Println("   请先启动: v run v-hono/tests/test_usockets_server.v")
 		return
 	}
 	fmt.Println("✅ 服务器已就绪")

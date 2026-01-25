@@ -18,6 +18,8 @@ pub:
 	clear_chunks_on_complete bool // 上传完成后是否清空分片，默认不清空
 	db_path        string = './uploads/files.db'  // 数据库文件路径
 	merge_buffer_size int = 8192  // 文件合并时的缓冲区大小（8KB）
+	// 新增：存储配置（可选，用于集成 FileService）
+	use_file_service bool // 是否使用 FileService 进行存储
 }
 
 // 分片信息
@@ -50,9 +52,10 @@ pub mut:
 // 分片上传管理器
 pub struct ChunkUploadManager {
 pub mut:
-	config ChunkUploadConfig
-	uploads map[string]FileUploadStatus
-	db      DatabaseManager
+	config       ChunkUploadConfig
+	uploads      map[string]FileUploadStatus
+	db           DatabaseManager
+	file_service &FileService = unsafe { nil } // 可选的 FileService，用于云存储集成
 }
 
 // 创建分片上传管理器
@@ -68,6 +71,52 @@ pub fn new_chunk_upload_manager(config ChunkUploadConfig) ChunkUploadManager {
 		config: config
 		uploads: map[string]FileUploadStatus{}
 		db: db
+		file_service: unsafe { nil }
+	}
+}
+
+// 创建分片上传管理器（使用现有的 FileService）
+// 当提供 FileService 时，合并后的文件将通过 FileService 存储到配置的存储后端
+pub fn new_chunk_upload_manager_with_storage(config ChunkUploadConfig, mut file_service FileService) ChunkUploadManager {
+	// 确保临时目录存在
+	os.mkdir_all(config.temp_dir) or { panic('Failed to create temp directory') }
+	
+	// 如果不使用 FileService，也需要创建上传目录
+	if !config.use_file_service {
+		os.mkdir_all(config.upload_dir) or { panic('Failed to create upload directory') }
+	}
+	
+	// 创建数据库管理器
+	db := new_database_manager(config.db_path) or { panic('Failed to create database manager: $err') }
+	
+	return ChunkUploadManager{
+		config: config
+		uploads: map[string]FileUploadStatus{}
+		db: db
+		file_service: file_service
+	}
+}
+
+// 创建分片上传管理器（自动创建本地 FileService）
+pub fn new_chunk_upload_manager_with_local_storage(config ChunkUploadConfig, storage_path string, db_path string) !ChunkUploadManager {
+	// 确保临时目录存在
+	os.mkdir_all(config.temp_dir) or {
+		return error('Failed to create temp directory: ${err}')
+	}
+	
+	// 创建本地 FileService
+	mut file_service := new_local_file_service(storage_path, db_path)!
+	
+	// 创建数据库管理器
+	db := new_database_manager(config.db_path) or {
+		return error('Failed to create database manager: ${err}')
+	}
+	
+	return ChunkUploadManager{
+		config: config
+		uploads: map[string]FileUploadStatus{}
+		db: db
+		file_service: &file_service
 	}
 }
 
@@ -190,6 +239,26 @@ pub fn (mut manager ChunkUploadManager) handle_chunk_upload(mut ctx Context) htt
 		// 获取文件扩展名
 		file_ext := get_file_extension(filename)
 		final_filename := '${file_hash}${file_ext}'
+		
+		// 检查是否使用 FileService 进行存储
+		if manager.file_service != unsafe { nil } && manager.config.use_file_service {
+			// 使用 FileService 存储
+			result := manager.merge_and_store_to_file_service(file_hash, filename, file_size, chunk_size) or {
+				println('[DEBUG] Merge and store to FileService failed: $err')
+				return ctx.file_operation_error('merge_and_store', file_hash, err.msg())
+			}
+			
+			manager.uploads[file_hash].status = 'completed'
+			manager.uploads[file_hash].updated_at = int(time.now().unix())
+			
+			if manager.config.clear_chunks_on_complete {
+				manager.cleanup_chunks(file_hash, chunk_size)
+			}
+			
+			return ctx.json('{"success": true, "all_chunk_uploaded": true, "file_uuid": "${result.file_uuid}", "storage_type": "${result.storage_type}", "message": "File uploaded successfully"}')
+		}
+		
+		// 使用本地文件系统存储（原有逻辑）
 		final_path := os.join_path(manager.config.upload_dir, final_filename)
 		
 		// 检查最终文件是否已经存在，避免重复合并
@@ -207,7 +276,7 @@ pub fn (mut manager ChunkUploadManager) handle_chunk_upload(mut ctx Context) htt
 		}
 		
 		// 在数据库中记录文件信息
-		file_info := manager.db.insert_or_update_file(file_hash, filename, file_size, file_ext) or {
+		file_info := manager.db.insert_or_update_file_simple(file_hash, filename, i64(file_size), file_ext) or {
 			println('[DEBUG] Failed to save file info to database: $err')
 			// 即使数据库保存失败，也不影响文件合并
 			FileInfo{}
@@ -259,19 +328,37 @@ pub fn (mut manager ChunkUploadManager) handle_chunk_merge(mut ctx Context) http
 		})
 	}
 	
-	// 合并文件
+	// 从上传状态中获取分片大小
+	chunk_size := upload_status.chunk_size
+	
+	// 检查是否使用 FileService 进行存储
+	if manager.file_service != unsafe { nil } && manager.config.use_file_service {
+		// 使用 FileService 存储
+		result := manager.merge_and_store_to_file_service(file_hash, filename, upload_status.file_size, chunk_size) or {
+			return ctx.file_operation_error('merge_and_store', file_hash, err.msg())
+		}
+		
+		// 更新状态为完成
+		manager.uploads[file_hash].status = 'completed'
+		manager.uploads[file_hash].updated_at = int(time.now().unix())
+		
+		// 清理临时分片
+		manager.cleanup_chunks(file_hash, chunk_size)
+		
+		return ctx.json('{"success": true, "file_uuid": "${result.file_uuid}", "storage_type": "${result.storage_type}", "message": "File merged successfully"}')
+	}
+	
+	// 使用本地文件系统存储（原有逻辑）
 	file_ext := get_file_extension(filename)
 	final_filename := '${file_hash.trim_space()}${file_ext}'
 	final_path := os.join_path(manager.config.upload_dir, final_filename)
 	
-	// 从上传状态中获取分片大小
-	chunk_size := upload_status.chunk_size
 	manager.merge_chunks(file_hash, total_chunks, final_path, chunk_size) or {
 		return ctx.file_operation_error('merge_chunks', final_path, err.msg())
 	}
 	
 	// 在数据库中记录文件信息
-	file_info := manager.db.insert_or_update_file(file_hash, filename, upload_status.file_size, file_ext) or {
+	file_info := manager.db.insert_or_update_file_simple(file_hash, filename, i64(upload_status.file_size), file_ext) or {
 		println('[DEBUG] Failed to save file info to database: $err')
 		// 即使数据库保存失败，也不影响文件合并
 		FileInfo{}
@@ -403,6 +490,54 @@ fn (mut manager ChunkUploadManager) merge_chunks(file_hash string, total_chunks 
 	println('[DEBUG] All chunks merged successfully to: $final_path')
 }
 
+// 合并分片并存储到 FileService
+// 当配置了 FileService 时，将合并后的文件通过 FileService 存储到配置的存储后端
+fn (mut manager ChunkUploadManager) merge_and_store_to_file_service(file_hash string, filename string, file_size int, chunk_size int) !UploadResult {
+	upload_status := manager.uploads[file_hash] or {
+		return error('Upload status not found')
+	}
+	
+	total_chunks := upload_status.uploaded_chunks.len
+	chunk_dir := os.join_path(manager.config.temp_dir, file_hash, chunk_size.str())
+	
+	// 流式合并分片到内存
+	mut final_data := []u8{}
+	buffer_size := manager.config.merge_buffer_size
+	mut buffer := []u8{len: buffer_size}
+	
+	for i in 0 .. total_chunks {
+		chunk_path := os.join_path(chunk_dir, 'chunk_${i}.part')
+		
+		if !os.exists(chunk_path) {
+			return error('Chunk file not found: ${chunk_path}')
+		}
+		
+		mut chunk_file := os.open(chunk_path) or {
+			return error('Failed to open chunk ${i}: ${err}')
+		}
+		
+		for {
+			bytes_read := chunk_file.read(mut buffer) or { break }
+			if bytes_read == 0 { break }
+			final_data << buffer[..bytes_read]
+		}
+		
+		chunk_file.close()
+	}
+	
+	// 获取 content_type
+	content_type := infer_content_type(filename)
+	
+	// 使用 FileService 上传文件
+	result := manager.file_service.upload_file(UploadParams{
+		filename: filename
+		content_type: content_type
+		metadata: '{"original_hash": "${file_hash}", "chunk_count": ${total_chunks}}'
+	}, final_data)!
+	
+	return result
+}
+
 // 清理临时分片
 fn (mut manager ChunkUploadManager) cleanup_chunks(file_hash string, chunk_size int) {
 	chunk_dir := os.join_path(manager.config.temp_dir, file_hash.trim_space(), chunk_size.str())
@@ -430,7 +565,7 @@ pub fn (mut manager ChunkUploadManager) handle_chunk_merge_internal(file_hash st
 	}
 	
 	// 在数据库中记录文件信息
-	manager.db.insert_or_update_file(file_hash, filename, file_size, file_ext) or {
+	manager.db.insert_or_update_file_simple(file_hash, filename, i64(file_size), file_ext) or {
 		println('[DEBUG] Failed to save file info to database: $err')
 		// 即使数据库保存失败，也不影响文件合并
 	}
@@ -553,4 +688,28 @@ pub fn (mut manager ChunkUploadManager) cleanup_invalid_status() {
 	for file_hash in to_delete {
 		manager.uploads.delete(file_hash)
 	}
+}
+
+// 关闭管理器（释放资源）
+pub fn (mut manager ChunkUploadManager) close() {
+	// 关闭数据库连接
+	manager.db.close()
+	
+	// 如果使用了 FileService，也关闭它
+	if manager.file_service != unsafe { nil } {
+		manager.file_service.close()
+	}
+}
+
+// 检查是否使用 FileService
+pub fn (manager ChunkUploadManager) uses_file_service() bool {
+	return manager.file_service != unsafe { nil } && manager.config.use_file_service
+}
+
+// 获取 FileService（如果存在）
+pub fn (manager ChunkUploadManager) get_file_service() ?&FileService {
+	if manager.file_service != unsafe { nil } {
+		return manager.file_service
+	}
+	return none
 } 

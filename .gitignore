@@ -47,3 +47,4 @@ chunks/
 
 .kiro
 *.def
+*.dylib
